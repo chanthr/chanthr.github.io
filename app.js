@@ -47,6 +47,93 @@ function ratioCard(title, node){
     </div>`;
 }
 
+// ===== [추가] 유틸 =====
+const fmtPct = (x) => (x == null || isNaN(x))
+  ? 'N/A'
+  : (x >= 0 ? '+' : '') + (Number(x) * 100).toFixed(2) + '%';
+
+function predCard(p = {}){
+  const signal = (p.signal || 'HOLD').toUpperCase();
+  const badgeClass = signal === 'BUY' ? 'BUY' : (signal === 'SELL' ? 'SELL' : 'HOLD');
+  return `
+    <div class="ratio">
+      <div><strong>${p.symbol || '-'}</strong> <span class="badge ${badgeClass}">${signal}</span></div>
+      ${p.last_close != null ? `<div class="mt-6">Last close: ${p.last_close}</div>` : ''}
+      ${p.live_price != null ? `<div class="mt-6">Live price: ${p.live_price}</div>` : ''}
+      ${p.pred_ret_1d != null ? `<div class="mt-6">Pred. 1D return: ${fmtPct(p.pred_ret_1d)}</div>` : ''}
+      ${p.pred_close_1d != null ? `<div class="mt-6">Pred. 1D close: ${p.pred_close_1d}</div>` : ''}
+    </div>`;
+}
+
+function fmtTime(ts){
+  try {
+    if (!ts) return '';
+    const d = new Date(Number(ts) * 1000);
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(d);
+  } catch { return ''; }
+}
+function newsList(items = []){
+  if(!Array.isArray(items) || items.length === 0){
+    return `<li class="muted">No recent headlines.</li>`;
+  }
+  return items.map(n => {
+    const t = (n.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const link = n.link || '#';
+    const when = fmtTime(n.providerPublishTime || n.pubTime || n.time || n.pub_time);
+    return `<li><a href="${link}" target="_blank" rel="noopener">${t}</a>${when ? ` <time>· ${when}</time>`:''}</li>`;
+  }).join('');
+}
+
+// ===== [추가] /agent 사용(실패 시 /predict 폴백) 후, 추가 섹션 렌더 =====
+async function renderAgentExtras(ticker, lang){
+  const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
+  if (predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
+  if (sumEl)  sumEl.textContent = '';
+  if (newsEl) newsEl.innerHTML = '';
+
+  // 1) 우선 /agent 시도
+  try{
+    const r = await fetch(`${API_BASE}/agent`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ query: `${ticker} 유동성/건전성 + 1D 예측`, language: lang, include_news: true })
+    });
+    if(!r.ok) throw new Error('agent');
+    const ag = await r.json();
+
+    if (predEl) predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
+    if (sumEl)  sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
+    if (newsEl) newsEl.innerHTML  = newsList(ag.news);
+    return;
+  }catch(_){ /* agent 실패 → predict 폴백 */ }
+
+  // 2) 폴백: /predict만 표시 (요약/뉴스 생략)
+  try{
+    const pr = await fetch(`${API_BASE}/predict`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ symbol: ticker, force: false })
+    });
+    if (pr.ok) {
+      const p = await pr.json();
+      if (predEl) predEl.innerHTML = predCard(p);
+    } else {
+      if (predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
+    }
+  }catch(e){
+    if (predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
+  }
+}
+
+// ===== [추가] 기존 analyse()를 그대로 호출한 뒤, 에이전트 섹션만 추가로 렌더 =====
+async function analyseWithExtras(){
+  await analyse();  // ← 네가 올린 기존 analyse() 그대로 사용
+  const t = $("#ticker").value.trim().toUpperCase();
+  const lang = $("#lang").value;
+  // 결과 블록이 보인 이후 비동기로 추가 섹션 로드
+  renderAgentExtras(t, lang);
+}
+
 // ---- 3) Healthcheck ----
 async function checkHealth(){
   try{
@@ -110,13 +197,9 @@ async function analyse(){
 
 // ---- 5) Boot ----
 document.addEventListener('DOMContentLoaded', () => {
-  ensureCssLoaded();       // 🔴 여기서 CSS 적용 확인/폴백
   checkHealth();
-
   $("#go").addEventListener('click', analyse);
   $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyse(); });
-
-  $("#toggle-json").addEventListener('change', (e)=>{
-    $("#jsonWrap").classList.toggle('hidden', !e.target.checked);
-  });
+  $("#go").addEventListener('click', analyseWithExtras);
+  $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyseWithExtras(); });
 });
