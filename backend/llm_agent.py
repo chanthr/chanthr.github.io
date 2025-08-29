@@ -196,44 +196,68 @@ def _ib_style_summary_llm(ana: dict, pred: Optional[dict], language: str) -> Opt
 
 # ---------------- 메인 집계기 ----------------
 def run_manager(query: str, language: str = "ko", include_news: bool = True) -> dict:
-    """
-    자연어 질의 한 번으로:
-      - 재무분석(finance_agent.run_query)
-      - 1D 예측(모델 → 실패 시 폴백)
-      - 실시간가(가능 시)
-      - 뉴스(yfinance + Google RSS 보강)
-      - IB 애널리스트 톤 요약(LLM → 실패/미설정 시 규칙기반)
-    를 하나의 JSON으로 반환.
-    """
     sym = pick_valid_ticker(query)
     ana = fa_run_query(query, language=language)
 
-    # 예측
+    # 1) 예측: 모델 → 폴백 → 최종 안전값
     try:
-        # 사용자가 별도 predictor 모델을 쓴다면 여기 import 해서 교체 가능
-        from predictor import predict_one
-        pred = predict_one(sym, force=False)
+        from predictor import predict_one  # 로컬 모델이 있으면 사용
+        try:
+            pred = predict_one(sym, force=False)
+        except Exception as e_model:
+            try:
+                pred = _predict_fallback(sym)
+            except Exception as e_fb:
+                pred = {
+                    "symbol": sym,
+                    "signal": "HOLD",
+                    "error": f"predict_failed:{type(e_model).__name__}; fallback_failed:{type(e_fb).__name__}: {e_fb}"
+                }
+    except Exception as e_import:
+        # predictor 모듈이 아예 없을 때도 안전하게
+        try:
+            pred = _predict_fallback(sym)
+        except Exception as e_fb:
+            pred = {
+                "symbol": sym,
+                "signal": "HOLD",
+                "error": f"predict_import_failed:{type(e_import).__name__}; fallback_failed:{type(e_fb).__name__}: {e_fb}"
+            }
+
+    # 2) 라이브가: 완전 방탄
+    try:
+        live = price_now(sym)
+        if live is not None:
+            pred["live_price"] = round(float(live), 4)
     except Exception:
-        pred = _predict_fallback(sym)
+        pass
 
-    live = price_now(sym)
-    if live is not None:
-        pred["live_price"] = round(float(live), 4)
+    # 3) 뉴스: 실패해도 항상 리스트
+    try:
+        news = _news_enriched(
+            sym, language,
+            company_name=(ana.get("core") or {}).get("company"),
+            k=10
+        ) if include_news else []
+    except Exception:
+        news = []
 
-    news = _news_enriched(sym, language, company_name=ana["core"].get("company"), k=10) if include_news else []
+    # 4) 요약: LLM → 규칙기반, 이것도 방탄
+    try:
+        text = _ib_style_summary_llm(ana, pred, language) or _ib_style_summary_rule(ana, pred, language)
+    except Exception:
+        text = _ib_style_summary_rule(ana, pred, language)
 
-    # 요약
-    text = _ib_style_summary_llm(ana, pred, language) or _ib_style_summary_rule(ana, pred, language)
-
+    # 5) 안전한 리턴(필드 항상 존재)
+    core = ana.get("core") or {}
     return {
-        "ticker": ana["core"]["ticker"],
-        "company": ana["core"]["company"],
-        "price": ana["core"]["price"],
+        "ticker": core.get("ticker") or sym,
+        "company": core.get("company"),
+        "price": core.get("price"),
         "analysis": ana,
         "prediction": pred,
         "news": news,
-        "summary": text,
+        "summary": text or ""
     }
-
 
 __all__ = ["run_manager"]
