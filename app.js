@@ -1,6 +1,9 @@
 // 🔧 API base
 const API_BASE = "https://chanthr-github-io.onrender.com";
 const $ = (s, el = document) => el.querySelector(s);
+const h = await (await fetch(`${API_BASE}/health`)).json();
+console.log('LLM status:', h.finance_llm, h.agent_llm);
+// e.g. 표시: h.agent_llm.provider === 'groq' ? 'Groq ON' : 'LLM fallback'
 
 // ========== UI helpers ==========
 function ratioCard(title, node){
@@ -92,10 +95,27 @@ function applySectionVisibility(p){
 async function checkHealth(){
   try{
     const r = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
-    const data = await r.json();
-    $("#health").textContent = data?.status === 'ok' ? 'OK' : '오류';
+    const h = await r.json();
+
+    // 기존 API 상태 표시
+    $("#health").textContent = h?.status === 'ok' ? 'OK' : '오류';
+
+    // ✅ LLM 상태 콘솔 로그
+    console.log('LLM status:', h?.finance_llm, h?.agent_llm);
+    // 예: h.agent_llm.provider === 'groq' ? 'Groq ON' : 'LLM fallback'
+
+    // (선택) UI에도 표시
+    const llmEl = $("#llm");
+    if (llmEl && h?.agent_llm) {
+      const isGroq = (h.agent_llm.provider === 'groq' && h.agent_llm.ready);
+      llmEl.textContent = isGroq ? 'Groq ON' : (h.agent_llm.reason || 'LLM fallback');
+      // 필요하면 툴팁 느낌으로 reason을 title 속성에 넣기
+      llmEl.title = JSON.stringify(h.agent_llm);
+    }
   }catch(e){
     $("#health").textContent = '접속 실패';
+    console.error('health error', e);
+    const llmEl = $("#llm"); if (llmEl) llmEl.textContent = 'Unknown';
   }
 }
 
