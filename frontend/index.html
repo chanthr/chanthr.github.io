@@ -3,195 +3,85 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>📊 LSA Tool</title>
+  <title>📊 LSA Tool </title>
   <meta name="description" content="Liquidity & Solvency Analysis – GitHub Pages frontend calling FastAPI backend" />
+  <!-- Optional Markdown renderer for nicer narrative -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
-    :root { --bg:#0f1117; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --border:#334155; }
-    html,body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0}
-    a{color:#93c5fd}
-
-    /* ===== Sidebar (toolbar) ===== */
-    .sidebar{position:fixed;left:0;top:0;bottom:0;width:280px;background:#0b1220;border-right:1px solid var(--border);padding:16px;overflow:auto;z-index:30}
-    .brand{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-    .muted{color:var(--muted);font-size:13px}
-    .sep{height:1px;background:var(--border);margin:12px 0}
-    .side-item{margin-bottom:10px}
-    input,select,button{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1526;color:var(--text)}
-    button{cursor:pointer}
-    .btn-primary{background:#1f2937;border-color:#374151}
-
-    /* ===== Main content ===== */
-    .content{margin-left:280px;padding:20px}
-    .wrap{max-width:1100px;margin:0 auto}
+    :root {
+      --bg:#0f1117; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --border:#334155;
+    }
+    html,body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0}
+    .wrap{max-width:980px;margin:0 auto;padding:24px}
     .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-top:16px;box-shadow:0 4px 20px rgba(0,0,0,.25)}
     .row{display:flex;gap:8px;flex-wrap:wrap}
+    input,select,button{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text)}
+    button{cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
     .grid{display:grid;gap:12px}
     .grid-3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
     .ratio{border:1px solid var(--border);border-radius:12px;padding:12px}
     .badge{display:inline-block;padding:4px 10px;border-radius:999px;background:#334155;font-size:12px;margin-left:6px}
-    .badge.Strong{background:#10b981}.badge.Fair{background:#f59e0b}.badge.Weak{background:#ef4444}
+    .badge.Strong{background:#10b981}
+    .badge.Fair{background:#f59e0b}
+    .badge.Weak{background:#ef4444}
     pre{white-space:pre-wrap;background:#0b1220;padding:12px;border-radius:12px;overflow:auto}
-
-    /* ===== Mobile ===== */
-    .topbar{display:none;position:sticky;top:0;background:rgba(15,17,23,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--border);z-index:40}
-    .topbar-inner{display:flex;align-items:center;gap:8px;padding:10px 14px}
-    .backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);backdrop-filter:blur(2px);z-index:35}
-    @media(max-width:900px){
-      .topbar{display:block}
-      .content{margin-left:0}
-      .sidebar{transform:translateX(-100%);transition:transform .2s ease}
-      .sidebar.open{transform:translateX(0)}
-      .sidebar.open + .backdrop{display:block}
-    }
-
-    /* Loading overlay */
-    .spinner{display:none;position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,.35);z-index:60}
-    .spinner.show{display:flex}
+    a { color: #93c5fd; }
   </style>
 </head>
 <body>
-  <!-- Mobile top bar -->
-  <div class="topbar">
-    <div class="topbar-inner">
-      <button id="openSidebar">☰</button>
-      <strong>📊 LSA Tool</strong>
-      <span id="healthTop" class="muted" style="margin-left:auto">상태 확인 중…</span>
+  <div class="wrap">
+    <h1>📊 Liquidity & Solvency Analysis</h1>
+    <p class="muted"> powered by finance agent v1 (cw) </p>
+
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <input id="ticker" placeholder="AAPL / 005930.KS / 7203.T" style="flex:1" />
+        <select id="lang">
+          <option value="ko">한국어</option>
+          <option value="en">English</option>
+        </select>
+        <button id="go">🔎 Analyse</button>
+      </div>
+      <p class="muted" style="margin-top:8px">KR/JP/HK 종목은 .KS / .T / .HK 접미사를 붙여야 작동됩니다.</p>
+      <p class="muted">API Status: <span id="health">확인 중…</span></p>
+    </div>
+
+    <div id="out" class="card" style="display:none">
+      <h2 id="title">결과</h2>
+      <div id="meta" class="muted" style="margin-bottom:8px"></div>
+
+      <h3>💧 Liquidity</h3>
+      <div id="liq" class="grid grid-3"></div>
+      <h3>🛡️ Solvency</h3>
+      <div id="sol" class="grid grid-3"></div>
+
+      <h3>📝 Narrative</h3>
+      <div id="narr" class="muted"></div>
+
+      <details style="margin-top:12px">
+        <summary>Raw JSON</summary>
+        <pre id="raw"></pre>
+      </details>
     </div>
   </div>
 
-  <!-- Sidebar / Toolbar -->
-  <aside id="sidebar" class="sidebar">
-    <div class="brand"><span>📊</span><strong>LSA Tool</strong></div>
-    <div class="muted">GitHub Pages 프론트 → FastAPI 백엔드 호출</div>
-    <div class="sep"></div>
-
-    <label class="side-item muted">API Status</label>
-    <div class="side-item"><span id="health">확인 중…</span></div>
-
-    <div class="sep"></div>
-
-    <label class="side-item muted">Language</label>
-    <select id="langSB" class="side-item">
-      <option value="ko">한국어</option>
-      <option value="en">English</option>
-    </select>
-
-    <label class="side-item muted">Ticker</label>
-    <input id="tickerSB" class="side-item" placeholder="AAPL / 005930.KS / 7203.T" />
-
-    <div class="side-item">
-      <input type="checkbox" id="showJsonSB" />
-      <label for="showJsonSB">Show JSON</label>
-    </div>
-
-    <button id="goSB" class="btn-primary side-item" style="width:100%">🔄 Re-Analyse</button>
-
-    <div class="sep"></div>
-    <div class="muted">KR/JP/HK 종목은 .KS / .T / .HK 접미사를 붙여야 작동됩니다.</div>
-  </aside>
-  <div class="backdrop" id="backdrop"></div>
-
-  <!-- Main content -->
-  <main class="content">
-    <div class="wrap">
-      <h1>📊 Liquidity & Solvency Analysis</h1>
-      <p class="muted">powered by finance agent v1 (cw)</p>
-
-      <!-- Center controls (same as toolbar) -->
-      <div class="card" id="centerControls">
-        <div class="row" style="align-items:center">
-          <label class="muted" style="min-width:80px">Language</label>
-          <select id="langC">
-            <option value="ko">한국어</option>
-            <option value="en">English</option>
-          </select>
-          <label class="muted" style="min-width:60px;margin-left:12px">Ticker</label>
-          <input id="tickerC" placeholder="AAPL / 005930.KS / 7203.T" style="flex:1;min-width:220px" />
-          <label style="display:flex;align-items:center;gap:6px;margin-left:12px"><input type="checkbox" id="showJsonC"/> <span class="muted">Show JSON</span></label>
-          <button id="goC">🔎 Analyse</button>
-        </div>
-      </div>
-
-      <div id="out" class="card" style="display:none">
-        <h2 id="title">결과</h2>
-        <div id="meta" class="muted" style="margin-bottom:8px"></div>
-
-        <h3>💧 Liquidity</h3>
-        <div id="liq" class="grid grid-3"></div>
-        <h3>🛡️ Solvency</h3>
-        <div id="sol" class="grid grid-3"></div>
-
-        <h3>📝 Narrative</h3>
-        <div id="narr" class="muted"></div>
-
-        <details id="rawWrap" style="margin-top:12px;display:none">
-          <summary>Raw JSON</summary>
-          <pre id="raw"></pre>
-        </details>
-      </div>
-    </div>
-  </main>
-
-  <div class="spinner" id="spinner"><div class="card">⏳ Analyzing…</div></div>
-
   <script>
-    // 백엔드 주소
-    const API_BASE = "https://chanthr-github-io.onrender.com";
+    // 🔧 
+    const API_BASE = "https://chanthr-github-io.onrender.com"; // ← 여길 본인 Render URL로
 
     const $ = s => document.querySelector(s);
-    const sidebar = $("#sidebar"), backdrop=$("#backdrop"), openBtn=$("#openSidebar");
+    const goBtn = $("#go");
 
-    // Sidebar (mobile)
-    function openSide(){ sidebar.classList.add('open'); }
-    function closeSide(){ sidebar.classList.remove('open'); }
-    if(openBtn) openBtn.onclick=openSide; if(backdrop) backdrop.onclick=closeSide;
-
-    // Elements (two sets)
-    const els = {
-      // sidebar
-      langSB: $("#langSB"),
-      tickerSB: $("#tickerSB"),
-      showJsonSB: $("#showJsonSB"),
-      goSB: $("#goSB"),
-      // center
-      langC: $("#langC"),
-      tickerC: $("#tickerC"),
-      showJsonC: $("#showJsonC"),
-      goC: $("#goC"),
-      // outputs
-      title: $("#title"), meta: $("#meta"), liq: $("#liq"), sol: $("#sol"), narr: $("#narr"), raw: $("#raw"), rawWrap: $("#rawWrap"), out: $("#out"), spinner: $("#spinner"),
-      health: $("#health"), healthTop: $("#healthTop")
-    };
-
-    // Health check
+    // 간단한 헬스체크
     async function checkHealth(){
-      try{ const r = await fetch(`${API_BASE}/health`, {cache:'no-store'}); const data = await r.json();
-        const ok = data?.status === 'ok';
-        els.health.textContent = ok ? 'OK' : '오류';
-        if(els.healthTop) els.healthTop.textContent = ok ? 'OK' : '오류';
-      }catch{ els.health.textContent='접속 실패'; if(els.healthTop) els.healthTop.textContent='접속 실패'; }
+      try{
+        const r = await fetch(`${API_BASE}/health`, {cache:'no-store'});
+        const data = await r.json();
+        $("#health").textContent = data?.status === 'ok' ? 'OK' : '오류';
+      }catch(e){ $("#health").textContent = '접속 실패'; }
     }
     checkHealth();
-
-    // Two-way binding between sidebar and center controls
-    function sync(from){
-      const src = from === 'SB';
-      const t = src ? els.tickerSB.value : els.tickerC.value;
-      const l = src ? els.langSB.value   : els.langC.value;
-      const j = src ? els.showJsonSB.checked : els.showJsonC.checked;
-      // write to the other set
-      if(src){ els.tickerC.value=t; els.langC.value=l; els.showJsonC.checked=j; }
-      else   { els.tickerSB.value=t; els.langSB.value=l; els.showJsonSB.checked=j; }
-    }
-    ['input','change'].forEach(ev=>{
-      els.tickerSB.addEventListener(ev, ()=>sync('SB'));
-      els.langSB.addEventListener(ev,   ()=>sync('SB'));
-      els.showJsonSB.addEventListener(ev,()=>sync('SB'));
-      els.tickerC.addEventListener(ev,  ()=>sync('C'));
-      els.langC.addEventListener(ev,    ()=>sync('C'));
-      els.showJsonC.addEventListener(ev,()=>sync('C'));
-    });
 
     function ratioCard(title, node){
       if(!node) return '';
@@ -201,24 +91,12 @@
               <div style="margin-top:6px">Value: ${value}</div></div>`;
     }
 
-    function renderResult(data){
-      els.title.textContent = `${data.core?.company||'-'} (${data.core?.ticker||'-'})`;
-      els.meta.textContent  = `Last Price: ${data.core?.price ?? 'N/A'}  •  Source: ${data.meta?.source || '-'}`;
-      const liq = data.core?.ratios?.Liquidity || {}; const sol = data.core?.ratios?.Solvency || {};
-      els.liq.innerHTML = [ratioCard('Current Ratio', liq.current_ratio), ratioCard('Quick Ratio', liq.quick_ratio), ratioCard('Cash Ratio', liq.cash_ratio)].join('');
-      els.sol.innerHTML = [ratioCard('Debt-to-Equity', sol.debt_to_equity), ratioCard('Debt Ratio', sol.debt_ratio), ratioCard('Interest Coverage', sol.interest_coverage)].join('');
-      const md = (data.explanation || '').trim();
-      els.narr.innerHTML = window.marked ? marked.parse(md) : md;
-      els.raw.textContent = JSON.stringify(data, null, 2);
-      els.out.style.display = 'block';
-    }
-
     async function analyse(){
-      const t = (els.tickerC.value || els.tickerSB.value).trim().toUpperCase();
-      const lang = els.langC.value || els.langSB.value;
-      const showJson = els.showJsonC.checked || els.showJsonSB.checked;
+      const t = $("#ticker").value.trim().toUpperCase();
+      const lang = $("#lang").value;
       if(!t){ alert('Ticker Symbol of the company.'); return; }
-      els.spinner.classList.add('show');
+      goBtn.disabled = true; goBtn.textContent = '⏳ Analysing...';
+      $("#out").style.display = 'none';
       try{
         const res = await fetch(`${API_BASE}/analyse`,{
           method:'POST', headers:{'Content-Type':'application/json'},
@@ -226,26 +104,43 @@
         });
         if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
         const data = await res.json();
-        renderResult(data);
-        els.rawWrap.style.display = showJson ? 'block' : 'none';
-      }catch(e){ alert('분석 실패: '+ e.message + '(API_BASE 확인 및 /health 체크)'); }
-      finally{ els.spinner.classList.remove('show'); closeSide(); }
+
+        // 헤더/메타
+        $("#title").textContent = `${data.core?.company||'-'} (${data.core?.ticker||'-'})`;
+        $("#meta").textContent = `Last Price: ${data.core?.price ?? 'N/A'}  •  Source: ${data.meta?.source || '-'}`;
+
+        // 비율 카드
+        const liq = data.core?.ratios?.Liquidity || {};
+        const sol = data.core?.ratios?.Solvency || {};
+        $("#liq").innerHTML = [
+          ratioCard('Current Ratio', liq.current_ratio),
+          ratioCard('Quick Ratio', liq.quick_ratio),
+          ratioCard('Cash Ratio', liq.cash_ratio)
+        ].join('');
+        $("#sol").innerHTML = [
+          ratioCard('Debt-to-Equity', sol.debt_to_equity),
+          ratioCard('Debt Ratio', sol.debt_ratio),
+          ratioCard('Interest Coverage', sol.interest_coverage)
+        ].join('');
+
+        // 내러티브 Markdown 렌더(없으면 프리텍스트)
+        const md = (data.explanation || '').trim();
+        if(window.marked){ $("#narr").innerHTML = marked.parse(md); }
+        else { $("#narr").textContent = md; }
+
+        // Raw
+        $("#raw").textContent = JSON.stringify(data, null, 2);
+        $("#out").style.display = 'block';
+      }catch(e){
+        alert('분석 실패: '+ e.message + '\n(API_BASE 확인 및 /health 체크)');
+      }finally{
+        goBtn.disabled = false; goBtn.textContent = '🔎 Analyse';
+      }
     }
 
-    // Buttons & Enter key (both places)
-    els.goSB.addEventListener('click', analyse);
-    els.goC.addEventListener('click', analyse);
-    els.tickerSB.addEventListener('keydown', e=>{ if(e.key==='Enter') analyse(); });
-    els.tickerC.addEventListener('keydown',  e=>{ if(e.key==='Enter') analyse(); });
-
-    // Bootstrap from URL (?t= & lang=)
-    (function bootstrap(){
-      const q = new URLSearchParams(location.search);
-      const t = (q.get('t')||'').toUpperCase();
-      const l = q.get('lang')||'';
-      if(t) { els.tickerSB.value=t; els.tickerC.value=t; }
-      if(l) { els.langSB.value=l; els.langC.value=l; }
-    })();
+    goBtn.addEventListener('click', analyse);
+    // Enter 키로 실행
+    $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyse(); });
   </script>
 </body>
 </html>
