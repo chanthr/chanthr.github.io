@@ -1,5 +1,7 @@
 # api.py
 import time, urllib.parse
+import pandas as pd
+import numpy as np
 import feedparser
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,11 +46,10 @@ def _live_price(sym: str):
     except Exception:
         return None
 
-def _news(sym: str, language: str = "en"):
-    """yfinance 뉴스 → 부족하면 Google News RSS로 보완"""
+# news scrapping
+def _news(sym: str, language: str = "en", company_name: str | None = None):
     items = []
-
-    # 1) yfinance 시도
+    # 1) yfinance
     try:
         arr = getattr(yf.Ticker(sym), "news", []) or []
         for n in arr[:10]:
@@ -60,58 +61,68 @@ def _news(sym: str, language: str = "en"):
     except Exception:
         pass
 
-    # 2) 폴백: Google News RSS
-    if len(items) < 3:  # 충분치 않으면 보충
+    # 2) Google News RSS (심볼로)
+    def _google_news(q: str, lang: str):
+        is_ko = str(lang).lower().startswith("ko")
+        hl = "ko" if is_ko else "en-US"
+        gl = "KR" if is_ko else "US"
+        url = (
+            "https://news.google.com/rss/search?q="
+            + urllib.parse.quote_plus(q)
+            + f"&hl={hl}&gl={gl}&ceid={gl}:{hl}"
+        )
+        feed = feedparser.parse(url)
+        out = []
+        for e in feed.entries[:10]:
+            link = e.get("link") or (e.get("links", [{}])[0].get("href"))
+            ts = int(time.mktime(e.published_parsed)) if getattr(e, "published_parsed", None) else None
+            out.append({"title": e.get("title"), "link": link, "providerPublishTime": ts})
+        return out
+
+    if len(items) < 3:
+        # 심볼 중심
+        q = f'{sym} stock' if not language.lower().startswith("ko") else f'{sym} 주가 OR {sym} 실적 OR {sym} 주식'
         try:
-            # 언어/지역 파라미터
-            is_ko = str(language).lower().startswith("ko")
-            hl = "ko" if is_ko else "en-US"
-            gl = "KR" if is_ko else "US"
-
-            # 검색쿼리: 티커 + stock (한국어일땐 '주가'도 OR)
-            q = f'{sym} stock'
-            if is_ko:
-                q = f'{sym} 주가 OR {sym} 실적 OR {sym} 주식'
-            url = (
-                "https://news.google.com/rss/search?q="
-                + urllib.parse.quote_plus(q)
-                + f"&hl={hl}&gl={gl}&ceid={gl}:{hl}"
-            )
-
-            feed = feedparser.parse(url)
-            for e in feed.entries[: max(0, 10 - len(items))]:
-                link = e.get("link") or (e.get("links", [{}])[0].get("href"))
-                ts = int(time.mktime(e.published_parsed)) if getattr(e, "published_parsed", None) else None
-                items.append({
-                    "title": e.get("title"),
-                    "link": link,
-                    "providerPublishTime": ts,
-                })
+            items.extend(_google_news(q, language))
         except Exception:
             pass
 
-    return items
+    if len(items) < 3 and company_name:
+        # 회사명으로 한 번 더
+        q2 = f'{company_name} stock' if not language.lower().startswith("ko") else f'{company_name} 주가 OR {company_name} 실적 OR {company_name} 주식'
+        try:
+            items.extend(_google_news(q2, language))
+        except Exception:
+            pass
+
+    # 중복 제거(링크 기준)
+    seen, dedup = set(), []
+    for it in items:
+        lk = it.get("link")
+        if lk and lk not in seen:
+            seen.add(lk)
+            dedup.append(it)
+    return dedup[:10]
 
 def _short_summary(text: str, language: str) -> str:
     if not text:
         return ""
-    # 코드블록/마크다운 제거
     s = re.sub(r"```.*?```", " ", text, flags=re.S)
     s = re.sub(r"`[^`]*`", " ", s)
-    s = re.sub(r"^#{1,6}\s*", "", s, flags=re.M)  # 헤더 # 제거
+    # 헤더 라인 전체 제거
+    s = re.sub(r"^#{1,6} .*$", " ", s, flags=re.M)
+    # 마크다운 잔여 기호 정리
     s = re.sub(r"[*_\[\]()>-]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     if not s:
         return ""
-    # 한/영 첫 문장
     if language.lower().startswith("ko"):
-        m = re.split(r"(?:다\.|요\.|\.|\?|!)\s", s, maxsplit=1)
-        first = (m[0] or s).strip()
+        parts = re.split(r"(?:다\.|요\.|\.|\?|!)\s", s, maxsplit=2)
     else:
-        m = re.split(r"(?<=[\.\?!])\s", s, maxsplit=1)
-        first = (m[0] or s).strip()
-    return first[:240]
-
+        parts = re.split(r"(?<=[\.\?!])\s", s, maxsplit=2)
+    out = " ".join([p for p in parts[:2] if p]).strip()
+    return out[:280]
+    
 @app.post("/analyse")
 def analyse(body: AnalyseIn):
     return run_query(body.query, language=body.language)
@@ -128,24 +139,59 @@ def predict(body: PredictIn):
             "symbol": body.symbol, "error": f"{type(e).__name__}: {e}"
         })
 
+def _predict_fallback(symbol: str) -> dict:
+    """
+    sklearn/특정 환경에서 predictor가 실패할 경우를 대비한 초간단 폴백.
+    - 6개월 일봉 받아서 10일 EWMA 수익률로 1일 예상수익률 산출
+    """
+    import yfinance as yf
+    df = yf.download(symbol, period="6mo", interval="1d", auto_adjust=True, progress=False)
+    if not isinstance(df, pd.DataFrame) or df.empty or "Close" not in df:
+        raise RuntimeError("fallback: no price data")
+    close = pd.to_numeric(df["Close"], errors="coerce").dropna()
+    if len(close) < 20:
+        raise RuntimeError("fallback: not enough data")
+    ret = close.pct_change().ewm(span=10, adjust=False).mean().iloc[-1]
+    last = float(close.iloc[-1])
+    pred_close = last * (1.0 + float(ret))
+    signal = "BUY" if ret > 0.01 else ("SELL" if ret < -0.01 else "HOLD")
+    return {
+        "symbol": symbol,
+        "last_close": round(last, 4),
+        "pred_ret_1d": round(float(ret), 6),
+        "pred_close_1d": round(float(pred_close), 4),
+        "signal": signal,
+        "ts": int(time.time()),
+    }
+
+# 최종 수정 버전 
 @app.post("/agent")
 def agent(body: AgentIn):
     analysis = run_query(body.query, language=body.language)
     core = (analysis or {}).get("core") or {}
     symbol = core.get("ticker") or body.query.strip().upper()
+    company = core.get("company")
 
-    # 예측 (에러 무시)
+    # 예측
     try:
         prediction = predict_one(symbol, force=False)
     except Exception as e:
-        prediction = {"symbol": symbol, "error": f"{type(e).__name__}: {e}"}
+        try:
+            prediction = _predict_fallback(symbol)
+        except Exception as e2:
+            prediction = {"symbol": symbol, "error": f"{type(e).__name__}: {e} / fallback {type(e2).__name__}: {e2}"}
 
-    price = _live_price(symbol) or core.get("price")
+    # 가격
+    price = _live_price(symbol) or core.get("price") \
+            or (prediction.get("live_price") if isinstance(prediction, dict) else None) \
+            or (prediction.get("last_close") if isinstance(prediction, dict) else None)
 
-    # 🔽 언어 기반 뉴스
-    news = _news(symbol, language=body.language) if body.include_news else []
+    # 뉴스
+    news = _news(symbol, language=body.language, company_name=company) if body.include_news else []
 
+    # 요약 (Markdown 헤더 제거한 1–2문장)
     summary = _short_summary(analysis.get("explanation", ""), body.language) or ""
+
     return {
         "ticker": symbol,
         "price": price,
