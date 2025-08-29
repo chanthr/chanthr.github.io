@@ -6,7 +6,7 @@
   <title>📊 LSA Agent</title>
   <meta name="description" content="Liquidity & Solvency Analysis - Powered by fin agent v1" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <link rel="stylesheet" href="./style.css?v=1" />
+  <link rel="stylesheet" href="./style.css?v=4" />
 </head>
 <body>
   <div class="wrap">
@@ -23,13 +23,13 @@
         <button id="go">🔎 Analyse</button>
       </div>
 
-      <!-- ✅ 검색 전에 고르는 표시 옵션 -->
+      <!-- ✅ 검색 전에 고르는 표시 옵션 (기본 해제) -->
       <div class="row align-center mt-8 opt-row">
         <label class="checkbox"><input type="checkbox" id="opt-pred" /> <span>Predict</span></label>
-        <label class="checkbox"><input type="checkbox" id="opt-sum" /> <span>Analyst by AI</span></label>
+        <label class="checkbox"><input type="checkbox" id="opt-sum"  /> <span>Analyst by AI</span></label>
         <label class="checkbox"><input type="checkbox" id="opt-news" /> <span>News</span></label>
       </div>
-    
+
       <p class="muted mt-8">For KR/JP/HK Stocks, must end with .KS / .T / .HK</p>
       <p class="muted mt-8">Please use responsibly. This agent is not responsible for user's investment.</p>
       <p class="muted">API Status: <span id="health">Checking...</span></p>
@@ -48,19 +48,19 @@
       <h3>📝 Narrative</h3>
       <div id="narr" class="muted"></div>
 
-      <!-- 🔮 Prediction 섹션 (토글용 래퍼) -->
+      <!-- 🔮 Prediction -->
       <section id="pred-section" class="hidden">
         <h3>🔮 Prediction (1-Day)</h3>
         <div id="pred" class="grid grid-3"></div>
       </section>
 
-      <!-- 🧠 LLM Summary 섹션 (토글용 래퍼) -->
+      <!-- 🧠 LLM Summary -->
       <section id="sum-section" class="hidden">
         <h3>🧠 LLM Summary</h3>
         <div id="sum" class="summary muted"></div>
       </section>
 
-      <!-- 🗞 News 섹션 (토글용 래퍼) -->
+      <!-- 🗞 News -->
       <section id="news-section" class="hidden">
         <h3>🗞 News</h3>
         <ul id="news" class="news-list"></ul>
@@ -81,6 +81,6 @@
   <footer class="watermark">© 2025 Powered by @chnxthr</footer>
 
   <!-- 앱 스크립트 -->
-  <script src="./app.js" defer></script>
+  <script src="./app.js?v=4" defer></script>
 </body>
 </html>
