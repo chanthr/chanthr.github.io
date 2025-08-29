@@ -45,6 +45,23 @@ function ratioCard(title, node){
     </div>`;
 }
 
+function getPrefs(){
+  const pred = $("#opt-pred")?.checked ?? true;
+  const sum  = $("#opt-sum")?.checked  ?? true;
+  const news = $("#opt-news")?.checked ?? true;
+  return { pred, sum, news };
+}
+function applySectionVisibility(p){
+  const S = {
+    pred: $("#pred-section"),
+    sum:  $("#sum-section"),
+    news: $("#news-section"),
+  };
+  if (S.pred) S.pred.classList.toggle('hidden', !p.pred);
+  if (S.sum)  S.sum.classList.toggle('hidden',  !p.sum);
+  if (S.news) S.news.classList.toggle('hidden', !p.news);
+}
+
 /* ---------- 3) 에이전트 부가 섹션 ---------- */
 const fmtPct = (x) => (x == null || isNaN(x))
   ? 'N/A'
@@ -81,42 +98,50 @@ function newsList(items = []){
   }).join('');
 }
 
-async function renderAgentExtras(ticker, lang){
+async function renderAgentExtras(ticker, lang, prefs={pred:true,sum:true,news:true}){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
-  if (predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
-  if (sumEl)  sumEl.textContent = '';
-  if (newsEl) newsEl.innerHTML = '';
-  // 1) /agent 우선
+  if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
+  if (prefs.sum  && sumEl)  sumEl.textContent = '';
+  if (prefs.news && newsEl) newsEl.innerHTML = '';
+
   try{
     const r = await fetch(`${API_BASE}/agent`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ query: `${ticker} 유동성/건전성 + 1D 예측`, language: lang, include_news: true })
+      body: JSON.stringify({
+        query: `${ticker} 유동성/건전성 + 1D 예측`,
+        language: lang,
+        include_news: !!prefs.news   // ✅ 뉴스만 서버에 전달
+      })
     });
     if(!r.ok) throw new Error('agent');
     const ag = await r.json();
-    if (predEl) predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
-    if (sumEl)  sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
-    if (newsEl) newsEl.innerHTML  = newsList(ag.news);
-    return;
-  }catch(_){}
-  // 2) 폴백: /predict
+
+    if (prefs.pred && predEl) predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
+    if (prefs.sum  && sumEl)  sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
+    if (prefs.news && newsEl) newsEl.innerHTML  = newsList(ag.news);
+  }catch(e){
+    if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
+    if (prefs.sum  && sumEl)  sumEl.textContent = '';
+    if (prefs.news && newsEl) newsEl.innerHTML  = `<li class="muted">News unavailable.</li>`;
+  }
+}
+
+async function renderPredictionOnly(ticker){
+  const predEl = $("#pred");
+  if (predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
   try{
-    const pr = await fetch(`${API_BASE}/predict`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+    const r = await fetch(`${API_BASE}/predict`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ symbol: ticker, force: false })
     });
-    if (pr.ok) {
-      const p = await pr.json();
-      if (predEl) predEl.innerHTML = predCard(p);
-    } else if (predEl) {
-      predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
-    }
+    const data = await r.json();
+    if (predEl) predEl.innerHTML = predCard(data);
   }catch(e){
     if (predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
   }
 }
+
 
 /* ---------- 4) 기존 analyse 그대로 ---------- */
 async function checkHealth(){
@@ -180,11 +205,25 @@ async function analyse(){
 
 /* ---------- 5) 기존 유지 + 에이전트 추가 호출 ---------- */
 async function analyseWithExtras(){
-  await analyse();  // 기존 흐름 유지
+  const prefs = getPrefs();
+  applySectionVisibility(prefs);   // 먼저 섹션 가시성 반영
+
+  await analyse();                 // 기존 분석 로직 그대로 실행
+
   const t = $("#ticker").value.trim().toUpperCase();
   const lang = $("#lang").value;
-  renderAgentExtras(t, lang); // 추가 섹션 비동기 렌더
+
+  // 아무 것도 선택하지 않으면 추가 호출 없음
+  if (!prefs.pred && !prefs.sum && !prefs.news) return;
+
+  // Prediction만 필요한 경우엔 가벼운 /predict만 호출
+  if (prefs.pred && !prefs.sum && !prefs.news) {
+    await renderPredictionOnly(t);
+  } else {
+    await renderAgentExtras(t, lang, prefs);
+  }
 }
+
 
 /* ---------- 6) Boot ---------- */
 document.addEventListener('DOMContentLoaded', () => {
