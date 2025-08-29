@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import uvicorn
 
 # 기존 파일을 같은 폴더에 둔다고 가정
-import backend.finance_agent as fa
+import finance_agent as fa
 
 app = FastAPI(title="LSA Tool API", version="0.1.0")
 
