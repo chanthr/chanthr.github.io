@@ -6,18 +6,16 @@ from pydantic import BaseModel
 from finance_agent import run_query
 from predictor import predict_one, predict_batch, read_cached
 from brokers import price_now
+from llm_agent import run_manager
 
 app = FastAPI(title="FIN Agent + Predictions", version="1.0")
 
+# 만든 직후 추가하기 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://chanthr.github.io",   
-        "https://chanthr.github.io/"   
-    ],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+  CORSMiddleware,
+  allow_origins=["https://chanthr.github.io","https://chanthr.github.io/TestPage"],
+  allow_methods=["*"],
+  allow_headers=["*"],
 )
 
 class AnalyseIn(BaseModel):
@@ -31,6 +29,18 @@ class PredictIn(BaseModel):
 class PredictBatchIn(BaseModel):
     symbols: List[str]
     force: bool = False
+
+class AgentIn(BaseModel):
+    query: str
+    language: str = "ko"
+    include_news: bool = True
+
+@app.post("/agent")
+def agent(body: AgentIn):
+    """
+    자연어 요청 하나로: 재무비율 + 1D 예측 + 실시간가 + (옵션) 뉴스 + 요약까지.
+    """
+    return run_manager(body.query, language=body.language, include_news=body.include_news)
 
 @app.get("/health")
 def health():

@@ -1,22 +1,8 @@
-# --- API server ---
-fastapi>=0.111,<1.0
-uvicorn[standard]>=0.30,<1.0
-
-# --- Data / Finance ---
-pandas>=2.1,<3.0
-numpy>=1.26,<3.0
-yfinance>=0.2.40
-python-dotenv>=1.0
-requests>=2.31,<3.0   # yfinance 및 브로커(KIS) REST 호출
-
-# --- LLM / LangChain / Groq ---
-langchain~=0.2
-langchain-core~=0.2
-langchain-groq>=0.1.5
-groq>=0.9             # ChatGroq 내부에서 필요
-
-# --- (Optional) ML predictor: scikit-learn 있으면 Ridge 회귀 사용, 없으면 EWMA 폴백 ---
-scikit-learn>=1.3,<2.0
-
-# --- (Optional) 앱 내부 스케줄링을 쓸 때만 ---
-apscheduler>=3.10,<4.0
+fastapi
+uvicorn[standard]
+pandas
+yfinance
+python-dotenv
+langchain-groq
+langchain-core
+langchain
