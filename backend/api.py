@@ -13,10 +13,9 @@ app = FastAPI(title="FIN Agent + Predictions", version="1.0")
 # ✅ CORS: 프리플라이트(OPTIONS)까지 허용
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://chanthr.github.io"],  # GitHub Pages (Testpage도 같은 origin)
-    allow_methods=["GET", "POST", "OPTIONS"],     # 명시적으로 열어주기
-    allow_headers=["Content-Type"],               # 프리플라이트에서 요청하는 헤더
-    max_age=3600,
+    allow_origins=["https://chanthr.github.io"],
+    allow_methods=["GET","POST","OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 class AnalyseIn(BaseModel):
