@@ -99,3 +99,24 @@ a{ color:#93c5fd; }
   user-select:none;
   pointer-events:none;
 }
+
+/* 예측 신호 배지 */
+.badge.BUY  { background:#10b981; } /* green */
+.badge.HOLD { background:#64748b; } /* gray */
+.badge.SELL { background:#ef4444; } /* red */
+
+/* 요약 박스 */
+.summary{
+  border-left:4px solid #10b981;
+  background:rgba(16,185,129,.08);
+  padding:12px;
+  border-radius:12px;
+}
+
+/* 뉴스 리스트 */
+.news-list{ list-style:none; padding:0; margin:0; }
+.news-list li{ padding:8px 0; border-bottom:1px solid var(--border); }
+.news-list a{ color:#93c5fd; text-decoration:none; }
+.news-list a:hover{ text-decoration:underline; }
+.news-list time{ color:var(--muted); font-size:12px; margin-left:6px; }
+
