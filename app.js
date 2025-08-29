@@ -1,9 +1,6 @@
 // 🔧 API base
 const API_BASE = "https://chanthr-github-io.onrender.com";
 const $ = (s, el = document) => el.querySelector(s);
-const h = await (await fetch(`${API_BASE}/health`)).json();
-console.log('LLM status:', h.finance_llm, h.agent_llm);
-// e.g. 표시: h.agent_llm.provider === 'groq' ? 'Groq ON' : 'LLM fallback'
 
 // ========== UI helpers ==========
 function ratioCard(title, node){
@@ -69,7 +66,7 @@ function getPrefs(){
   return { pred, sum, news };
 }
 
-// 래퍼 자동 탐지: id가 잘못되어 있어도 #pred/#sum/#news의 근접 section을 찾아 토글
+// id가 잘못돼도 #pred/#sum/#news의 가장 가까운 section을 찾아 토글
 function findWrap(childSel, preferredIdSel){
   const byId = document.querySelector(preferredIdSel);
   if (byId) return byId;
@@ -91,31 +88,40 @@ function applySectionVisibility(p){
   if (newsWrap) newsWrap.classList.toggle('hidden', !p.news);
 }
 
+// ========== 유틸리티 ==========
+async function fetchJSON(url, opts={}, timeoutMs=9000){
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), timeoutMs);
+  try{
+    const res = await fetch(url, {cache:"no-store", mode:"cors", signal:ctrl.signal, ...opts});
+    clearTimeout(t);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }catch(e){
+    clearTimeout(t);
+    throw e;
+  }
+}
+
 // ========== Health ==========
 async function checkHealth(){
+  const apiEl = $("#health");
+  const llmEl = $("#llm");
+  if (apiEl) apiEl.textContent = "Checking...";
+  if (llmEl) llmEl.textContent = "Checking...";
+
   try{
-    const r = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
-    const h = await r.json();
+    const h = await fetchJSON(`${API_BASE}/health?t=${Date.now()}`);
+    if (apiEl) apiEl.textContent = h?.status === "ok" ? "OK" : "Error";
 
-    // 기존 API 상태 표시
-    $("#health").textContent = h?.status === 'ok' ? 'OK' : '오류';
+    const on = (x)=> x && x.ready && x.provider ? `${x.provider.toUpperCase()} ON` : `Fallback (${x?.reason || "no LLM"})`;
+    if (llmEl) llmEl.textContent = `Finance: ${on(h?.finance_llm)}  •  Agent: ${on(h?.agent_llm)}`;
 
-    // ✅ LLM 상태 콘솔 로그
-    console.log('LLM status:', h?.finance_llm, h?.agent_llm);
-    // 예: h.agent_llm.provider === 'groq' ? 'Groq ON' : 'LLM fallback'
-
-    // (선택) UI에도 표시
-    const llmEl = $("#llm");
-    if (llmEl && h?.agent_llm) {
-      const isGroq = (h.agent_llm.provider === 'groq' && h.agent_llm.ready);
-      llmEl.textContent = isGroq ? 'Groq ON' : (h.agent_llm.reason || 'LLM fallback');
-      // 필요하면 툴팁 느낌으로 reason을 title 속성에 넣기
-      llmEl.title = JSON.stringify(h.agent_llm);
-    }
+    console.log("LLM status:", h?.finance_llm, h?.agent_llm);
   }catch(e){
-    $("#health").textContent = '접속 실패';
-    console.error('health error', e);
-    const llmEl = $("#llm"); if (llmEl) llmEl.textContent = 'Unknown';
+    console.error("health error", e);
+    if (apiEl) apiEl.textContent = "Offline / Timeout";
+    if (llmEl) llmEl.textContent = "Unavailable";
   }
 }
 
@@ -131,13 +137,11 @@ async function analyse(){
   $("#out").classList.add('hidden');
 
   try{
-    const res = await fetch(`${API_BASE}/analyse`,{
+    const data = await fetchJSON(`${API_BASE}/analyse?t=${Date.now()}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ query: `${t} 유동성/건전성 평가`, language: lang })
     });
-    if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
-    const data = await res.json();
 
     $("#title").textContent = `${data.core?.company || '-'} (${data.core?.ticker || '-'})`;
     $("#meta").textContent  = `Last Price: ${data.core?.price ?? 'N/A'}  •  Source: ${data.meta?.source || '-'}`;
@@ -177,7 +181,7 @@ async function renderAgentExtras(ticker, lang, prefs){
   if (prefs.news && newsEl) newsEl.innerHTML = '';
 
   try{
-    const r = await fetch(`${API_BASE}/agent`, {
+    const ag = await fetchJSON(`${API_BASE}/agent`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -186,8 +190,6 @@ async function renderAgentExtras(ticker, lang, prefs){
         include_news: !!prefs.news
       })
     });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const ag = await r.json();
     console.log("[/agent]", ag);
 
     if (prefs.pred && predEl) {
