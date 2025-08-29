@@ -10,6 +10,7 @@ from pydantic import BaseModel
 import re, yfinance as yf
 from finance_agent import run_query, llm
 from predictor import predict_one
+from llm_agent import run_manager
 
 app = FastAPI(title="FIN Agent + Predictions", version="1.3")
 
@@ -167,36 +168,4 @@ def _predict_fallback(symbol: str) -> dict:
 # 최종 수정 버전 
 @app.post("/agent")
 def agent(body: AgentIn):
-    analysis = run_query(body.query, language=body.language)
-    core = (analysis or {}).get("core") or {}
-    symbol = core.get("ticker") or body.query.strip().upper()
-    company = core.get("company")
-
-    # 예측
-    try:
-        prediction = predict_one(symbol, force=False)
-    except Exception as e:
-        try:
-            prediction = _predict_fallback(symbol)
-        except Exception as e2:
-            prediction = {"symbol": symbol, "error": f"{type(e).__name__}: {e} / fallback {type(e2).__name__}: {e2}"}
-
-    # 가격
-    price = _live_price(symbol) or core.get("price") \
-            or (prediction.get("live_price") if isinstance(prediction, dict) else None) \
-            or (prediction.get("last_close") if isinstance(prediction, dict) else None)
-
-    # 뉴스
-    news = _news(symbol, language=body.language, company_name=company) if body.include_news else []
-
-    # 요약 (Markdown 헤더 제거한 1–2문장)
-    summary = _short_summary(analysis.get("explanation", ""), body.language) or ""
-
-    return {
-        "ticker": symbol,
-        "price": price,
-        "analysis": analysis,
-        "prediction": prediction,
-        "summary": summary,
-        "news": news,
-    }
+    return run_manager(body.query, language=body.language, include_news=body.include_news)
