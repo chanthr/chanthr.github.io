@@ -1,28 +1,34 @@
 # llm_agent.py
 import json, time, re, urllib.parse
 from typing import Optional, List, Dict
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
 import feedparser
-
 from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser
-from langchain_groq import ChatGroq
-from langchain.tools import tool
-from finance_agent import run_query as fa_run_query, pick_valid_ticker
-from predictor import predict_one
-from brokers import price_now
+
+# ---- LangChain은 선택(optional). 없으면 조용히 폴백 ----
+try:
+    from langchain.tools import tool  # decorator만 필요
+except Exception:  # 패키지 없으면 no-op 데코레이터
+    def tool(*args, **kwargs):
+        def _wrap(fn): return fn
+        return _wrap
 
 # ---------------- Model (optional) ----------------
 def build_model():
     import os
     key = (os.getenv("GROQ_API_KEY") or "").strip()
-    model = os.getenv("GROQ_MODEL", "llama3-8b-8192")
     if not key:
         return None
-    return ChatGroq(model=model, temperature=0.2, api_key=key)
+    try:
+        from langchain_groq import ChatGroq
+        model = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+        return ChatGroq(model=model, temperature=0.2, api_key=key)
+    except Exception:
+        # langchain_groq / 버전 이슈 시 LLM 비활성
+        return None
 
 model = build_model()
 
@@ -32,7 +38,6 @@ def _predict_fallback(symbol: str) -> dict:
     if not isinstance(df, pd.DataFrame) or df.empty or "Close" not in df:
         raise RuntimeError("fallback: no price data")
 
-    # 순수 numpy 기반으로 안전 계산 (오류 원천 차단)
     close = pd.to_numeric(df["Close"], errors="coerce").astype(float).dropna().values
     if close.size < 20:
         raise RuntimeError("fallback: not enough data")
@@ -85,12 +90,14 @@ def _news_enriched(symbol: str, language: str, company_name: Optional[str] = Non
         return out
 
     if len(items) < 3:
-        q = f"{symbol} 주가 OR {symbol} 실적 OR {symbol} 주식" if language[:2]=="ko" else f"{symbol} stock OR earnings"
+        q = (f"{symbol} 주가 OR {symbol} 실적 OR {symbol} 주식"
+             if language[:2]=="ko" else f"{symbol} stock OR earnings")
         try: items.extend(_google(q))
         except Exception: pass
 
     if len(items) < 3 and company_name:
-        q2 = f"{company_name} 주가 OR {company_name} 실적 OR {company_name} 주식" if language[:2]=="ko" else f"{company_name} stock OR earnings"
+        q2 = (f"{company_name} 주가 OR {company_name} 실적 OR {company_name} 주식"
+              if language[:2]=="ko" else f"{company_name} stock OR earnings")
         try: items.extend(_google(q2))
         except Exception: pass
 
@@ -110,63 +117,80 @@ def _news_enriched(symbol: str, language: str, company_name: Optional[str] = Non
 
 # ---------------- IB-style summary (LLM or rule) ----------------
 def _ib_style_summary_rule(ana: dict, pred: Optional[dict], language: str) -> str:
-    # 숫자/밴드 꺼내기
     r = (ana or {}).get("core", {}).get("ratios", {})
     liq = r.get("Liquidity", {}) or {}
     sol = r.get("Solvency", {}) or {}
 
-    def val(node): 
+    def val(node):
         v = (node or {}).get("value")
         return None if v is None else float(v)
 
     cr, qr, cash = val(liq.get("current_ratio")), val(liq.get("quick_ratio")), val(liq.get("cash_ratio"))
     de, dr, ic = val(sol.get("debt_to_equity")), val(sol.get("debt_ratio")), val(sol.get("interest_coverage"))
 
-    # 간결한 3줄(유동성/건전성/리스크)
     if language[:2] == "ko":
         lines = []
-        lines.append(f"유동성은 유동비율 {cr:.2f}, 당좌비율 {qr:.2f} 수준으로 단기지급능력은 {'양호' if (cr and cr>=1.5) else '보통'}합니다." if cr and qr else "유동성 지표가 제한적으로 제공됩니다.")
-        lines.append(f"건전성은 D/E {de:.2f}, 부채비율 {dr:.2f}, 이자보상배율 {ic:.2f}로 {'보수적' if (de and de<=1.0 and (ic and ic>=5)) else '중립'}입니다.")
+        lines.append(
+            f"유동성은 유동비율 {cr:.2f}, 당좌비율 {qr:.2f} 수준으로 단기지급능력은 "
+            f"{'양호' if (cr and cr>=1.5) else '보통'}합니다." if cr and qr else "유동성 지표가 제한적으로 제공됩니다."
+        )
+        lines.append(
+            f"건전성은 D/E {de:.2f}, 부채비율 {dr:.2f}, 이자보상배율 {ic:.2f}로 "
+            f"{'보수적' if (de and de<=1.0 and (ic and ic>=5)) else '중립'}입니다."
+        )
         if pred and isinstance(pred, dict) and pred.get("pred_ret_1d") is not None:
-            p = float(pred["pred_ret_1d"])
-            sig = pred.get("signal","HOLD")
-            lines.append(f"단기(1D) 시그널은 {sig}({p*100:+.2f}%)이며 트레이딩 관점의 참고 지표로 활용을 권고합니다.")
+            p = float(pred["pred_ret_1d"]); sig = pred.get("signal","HOLD")
+            lines.append(f"단기(1D) 시그널은 {sig}({p*100:+.2f}%)이며 트레이딩 관점 참고 수준입니다.")
         else:
-            lines.append("단기(1D) 예측은 참고용이며 데이터 불충분 시 표시되지 않을 수 있습니다.")
+            lines.append("단기(1D) 예측은 데이터 부족 시 미표시될 수 있습니다.")
         return " ".join(lines)
     else:
         lines = []
-        lines.append(f"Liquidity appears {'solid' if (cr and cr>=1.5) else 'adequate'} with Current {cr:.2f} and Quick {qr:.2f}." if cr and qr else "Liquidity metrics are limited.")
-        lines.append(f"Balance sheet is {'conservative' if (de and de<=1.0 and (ic and ic>=5)) else 'neutral'} (D/E {de:.2f}, Debt ratio {dr:.2f}, Interest coverage {ic:.2f}).")
+        lines.append(
+            f"Liquidity appears {'solid' if (cr and cr>=1.5) else 'adequate'} with Current {cr:.2f} and Quick {qr:.2f}."
+            if cr and qr else "Liquidity metrics are limited."
+        )
+        lines.append(
+            f"Balance sheet is {'conservative' if (de and de<=1.0 and (ic and ic>=5)) else 'neutral'} "
+            f"(D/E {de:.2f}, Debt ratio {dr:.2f}, Interest coverage {ic:.2f})."
+        )
         if pred and isinstance(pred, dict) and pred.get("pred_ret_1d") is not None:
-            p = float(pred["pred_ret_1d"])
-            sig = pred.get("signal","HOLD")
-            lines.append(f"1-day tactical signal: {sig} ({p*100:+.2f}%), to be used as trading color only.")
+            p = float(pred["pred_ret_1d"]); sig = pred.get("signal","HOLD")
+            lines.append(f"1-day tactical signal: {sig} ({p*100:+.2f}%), trading color only.")
         else:
-            lines.append("1-day prediction is advisory and may be unavailable if data is insufficient.")
+            lines.append("1-day prediction may be unavailable if data is insufficient.")
         return " ".join(lines)
 
 def _ib_style_summary_llm(ana: dict, pred: Optional[dict], language: str) -> Optional[str]:
     if model is None:
         return None
+    try:
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import StrOutputParser
+    except Exception:
+        return None
+
     ask_lang = "Korean" if language.lower().startswith("ko") else "English"
     prompt = ChatPromptTemplate.from_messages([
         ("system",
          "You are an investment-banking equity analyst. Write in {ask_lang}. "
-         "Deliver a crisp 2–3 sentence note covering: Liquidity stance, solvency/leverage, and a tactical 1-day signal if provided. "
-         "Make it professional and numbers-backed (mention key ratios once). No bullet points, no markdown, no headings."),
-        ("human", "DATA(JSON):\n{blob}\n\nReturn only the prose text (2–3 sentences).")
+         "Give a crisp 2–3 sentence note covering liquidity stance, solvency/leverage, and a 1-day signal if provided. "
+         "Be professional and numbers-backed (mention key ratios once). No bullets/markdown/headings."),
+        ("human", "DATA(JSON):\n{blob}\n\nReturn only the prose (2–3 sentences).")
     ])
     chain = prompt | model | StrOutputParser()
     try:
         txt = chain.invoke({"ask_lang": ask_lang, "blob": json.dumps({"analysis": ana, "prediction": pred}, ensure_ascii=False)})
-        # 가끔 마크다운/여분 공백 제거
         txt = re.sub(r"\s+", " ", re.sub(r"`+|#+", " ", str(txt))).strip()
         return txt[:600]
     except Exception:
         return None
 
 # ---------------- Tools (optional) ----------------
+from finance_agent import run_query as fa_run_query, pick_valid_ticker
+from predictor import predict_one
+from brokers import price_now
+
 class PredictArgs(BaseModel):
     symbol: str = Field(..., description="Ticker symbol like AAPL or 005930.KS")
     force: bool = Field(False, description="If true, bypass cache")
@@ -232,7 +256,8 @@ def _aggregate(query: str, language: str = "ko", include_news: bool = True) -> A
     except Exception:
         pred = _predict_fallback(sym)
 
-    live = price_now(sym)
+    from brokers import price_now as _price_now
+    live = _price_now(sym)
     if live is not None:
         pred["live_price"] = round(float(live), 4)
 
@@ -255,10 +280,15 @@ def _aggregate(query: str, language: str = "ko", include_news: bool = True) -> A
 def run_manager(query: str, language: str = "ko", include_news: bool = True) -> dict:
     return json.loads(_aggregate(query, language=language, include_news=include_news).model_dump_json())
 
-# (optional) tool-calling agent
 def run_manager_with_tools(query: str, language: str = "ko", want_news: bool = True) -> dict:
+    # 완전한 툴콜 에이전트(선택). langchain 미설치면 자동 폴백.
     try:
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
         from langchain.agents import create_tool_calling_agent, AgentExecutor
+    except Exception:
+        return run_manager(query, language=language, include_news=want_news)
+
+    try:
         prompt = ChatPromptTemplate.from_messages([
             ("system",
              "You are a finance orchestrator. When unsure, call both compute_financials and predict_one_day. "
