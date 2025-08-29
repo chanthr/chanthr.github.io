@@ -3,41 +3,61 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>📊 LSA Tool (Static Front)</title>
+  <title>📊 LSA Tool (Frontend)</title>
+  <meta name="description" content="Liquidity & Solvency Analysis – GitHub Pages frontend calling FastAPI backend" />
+  <!-- Optional Markdown renderer for nicer narrative -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
-    body{font-family:system-ui, -apple-system, Segoe UI, Roboto; background:#0f1117; color:#e5e7eb; margin:0; padding:2rem;}
-    .wrap{max-width:820px; margin:0 auto;}
-    input,select,button{padding:10px 12px; border-radius:10px; border:1px solid #334155; background:#111827; color:#e5e7eb;}
-    .row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
-    .card{background:#111827; border:1px solid #334155; border-radius:16px; padding:16px; margin-top:16px;}
-    .muted{color:#9ca3af; font-size:13px}
-    pre{white-space:pre-wrap; background:#0b1220; padding:12px; border-radius:12px; overflow:auto;}
-    .badge{padding:4px 10px; border-radius:999px; font-size:12px; margin-left:6px; background:#334155;}
+    :root {
+      --bg:#0f1117; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --border:#334155;
+    }
+    html,body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0}
+    .wrap{max-width:980px;margin:0 auto;padding:24px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-top:16px;box-shadow:0 4px 20px rgba(0,0,0,.25)}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    input,select,button{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text)}
+    button{cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
+    .grid{display:grid;gap:12px}
+    .grid-3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+    .ratio{border:1px solid var(--border);border-radius:12px;padding:12px}
+    .badge{display:inline-block;padding:4px 10px;border-radius:999px;background:#334155;font-size:12px;margin-left:6px}
+    .badge.Strong{background:#10b981}
+    .badge.Fair{background:#f59e0b}
+    .badge.Weak{background:#ef4444}
+    pre{white-space:pre-wrap;background:#0b1220;padding:12px;border-radius:12px;overflow:auto}
+    a { color: #93c5fd; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>📊 LSA Tool</h1>
-    <p class="muted">분석용 API를 별도 서버로 올린 뒤, 여기는 정적 프론트에서 호출합니다.</p>
+    <p class="muted">GitHub Pages 정적 프론트에서 FastAPI 백엔드(API)를 호출합니다.</p>
 
     <div class="card">
-      <div class="row">
-        <input id="ticker" placeholder="예: AAPL / 005930.KS / 7203.T" style="flex:1"/>
+      <div class="row" style="align-items:center">
+        <input id="ticker" placeholder="AAPL / 005930.KS / 7203.T" style="flex:1" />
         <select id="lang">
           <option value="ko">한국어</option>
           <option value="en">English</option>
         </select>
         <button id="go">🔎 Analyse</button>
       </div>
-      <p class="muted">KR/JP/HK 종목은 .KS / .T / .HK 접미사 필수</p>
+      <p class="muted" style="margin-top:8px">KR/JP/HK 종목은 .KS / .T / .HK 접미사를 붙여주세요.</p>
+      <p class="muted">API 상태: <span id="health">확인 중…</span></p>
     </div>
 
     <div id="out" class="card" style="display:none">
       <h2 id="title">결과</h2>
-      <div id="meta" class="muted"></div>
+      <div id="meta" class="muted" style="margin-bottom:8px"></div>
+
+      <h3>💧 Liquidity</h3>
+      <div id="liq" class="grid grid-3"></div>
+      <h3>🛡️ Solvency</h3>
+      <div id="sol" class="grid grid-3"></div>
 
       <h3>📝 Narrative</h3>
-      <div id="narr"></div>
+      <div id="narr" class="muted"></div>
 
       <details style="margin-top:12px">
         <summary>Raw JSON</summary>
@@ -47,48 +67,80 @@
   </div>
 
   <script>
-    // 🔧 배포 후 당신의 API URL로 교체하세요
-    const API_BASE = "https://lsa-tool-api.onrender.com";
+    // 🔧 배포한 FastAPI 백엔드 주소로 바꿔주세요
+    const API_BASE = "https://chanthr-github-io.onrender.com"; // ← 여길 본인 Render URL로
 
-    const $ = (s)=>document.querySelector(s);
+    const $ = s => document.querySelector(s);
     const goBtn = $("#go");
-    const out = $("#out");
-    const title = $("#title");
-    const meta = $("#meta");
-    const narr = $("#narr");
-    const raw = $("#raw");
 
-    goBtn.addEventListener("click", async ()=>{
+    // 간단한 헬스체크
+    async function checkHealth(){
+      try{
+        const r = await fetch(`${API_BASE}/health`, {cache:'no-store'});
+        const data = await r.json();
+        $("#health").textContent = data?.status === 'ok' ? 'OK' : '오류';
+      }catch(e){ $("#health").textContent = '접속 실패'; }
+    }
+    checkHealth();
+
+    function ratioCard(title, node){
+      if(!node) return '';
+      const value = (node.value==null)? 'N/A' : Number(node.value).toFixed(2);
+      const band = node.band || 'N/A';
+      return `<div class="ratio"><div><strong>${title}</strong> <span class="badge ${band}">${band}</span></div>
+              <div style="margin-top:6px">Value: ${value}</div></div>`;
+    }
+
+    async function analyse(){
       const t = $("#ticker").value.trim().toUpperCase();
       const lang = $("#lang").value;
-      if(!t){ alert("티커를 입력하세요."); return; }
-
-      goBtn.disabled = true; goBtn.textContent = "⏳ Analyzing...";
-      narr.textContent = ""; raw.textContent=""; meta.textContent="";
+      if(!t){ alert('티커를 입력하세요.'); return; }
+      goBtn.disabled = true; goBtn.textContent = '⏳ Analyzing...';
+      $("#out").style.display = 'none';
       try{
-        const body = { query: `${t} 유동성/건전성 평가`, language: lang };
-        const res = await fetch(`${API_BASE}/analyse`, {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify(body)
+        const res = await fetch(`${API_BASE}/analyse`,{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ query: `${t} 유동성/건전성 평가`, language: lang })
         });
         if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
         const data = await res.json();
 
-        title.textContent = `${(data.core?.company)||"-"} (${(data.core?.ticker)||"-"})`;
-        meta.textContent  = `Last Price: ${data.core?.price ?? "N/A"}`;
-        // LLM이 만들어준 Markdown이므로 간단 렌더(아래는 매우 단순)
-        // 필요하면 marked.js 같은 라이브러리로 깔끔 렌더하세요.
-        narr.innerText = data.explanation || "—";
-        raw.textContent = JSON.stringify(data, null, 2);
+        // 헤더/메타
+        $("#title").textContent = `${data.core?.company||'-'} (${data.core?.ticker||'-'})`;
+        $("#meta").textContent = `Last Price: ${data.core?.price ?? 'N/A'}  •  Source: ${data.meta?.source || '-'}`;
 
-        out.style.display = "block";
+        // 비율 카드
+        const liq = data.core?.ratios?.Liquidity || {};
+        const sol = data.core?.ratios?.Solvency || {};
+        $("#liq").innerHTML = [
+          ratioCard('Current Ratio', liq.current_ratio),
+          ratioCard('Quick Ratio', liq.quick_ratio),
+          ratioCard('Cash Ratio', liq.cash_ratio)
+        ].join('');
+        $("#sol").innerHTML = [
+          ratioCard('Debt-to-Equity', sol.debt_to_equity),
+          ratioCard('Debt Ratio', sol.debt_ratio),
+          ratioCard('Interest Coverage', sol.interest_coverage)
+        ].join('');
+
+        // 내러티브 Markdown 렌더(없으면 프리텍스트)
+        const md = (data.explanation || '').trim();
+        if(window.marked){ $("#narr").innerHTML = marked.parse(md); }
+        else { $("#narr").textContent = md; }
+
+        // Raw
+        $("#raw").textContent = JSON.stringify(data, null, 2);
+        $("#out").style.display = 'block';
       }catch(e){
-        alert("분석 실패: " + e.message);
+        alert('분석 실패: '+ e.message + '\n(API_BASE 확인 및 /health 체크)');
       }finally{
-        goBtn.disabled = false; goBtn.textContent = "🔎 Analyse";
+        goBtn.disabled = false; goBtn.textContent = '🔎 Analyse';
       }
-    });
+    }
+
+    goBtn.addEventListener('click', analyse);
+    // Enter 키로 실행
+    $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyse(); });
   </script>
 </body>
 </html>
