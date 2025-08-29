@@ -6,7 +6,7 @@
   <title>📊 LSA Agent</title>
   <meta name="description" content="Liquidity & Solvency Analysis - Powered by fin agent v1" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <link rel="stylesheet" href="https://chanthr.github.io/styles.css?v=4" />
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="wrap">
@@ -20,24 +20,23 @@
           <option value="ko">Korean</option>
           <option value="en">English</option>
         </select>
-        <button id="go">🔎 Analyse</button>
+        <button id="go" type="button">🔎 Analyse</button>
       </div>
 
-      <!-- ✅ 검색 전에 고르는 표시 옵션 (기본 해제) -->
+      <!-- 검색 전에 고르는 옵션 (기본 해제) -->
       <div class="row align-center mt-8 opt-row">
         <label class="checkbox"><input type="checkbox" id="opt-pred" /> <span>Predict</span></label>
-        <label class="checkbox"><input type="checkbox" id="opt-sum"  /> <span>Analyst Pro by AI</span></label>
-        <label class="checkbox"><input type="checkbox" id="opt-news" /> <span>Trends</span></label>
+        <label class="checkbox"><input type="checkbox" id="opt-sum" /> <span>Analyst by AI</span></label>
+        <label class="checkbox"><input type="checkbox" id="opt-news" /> <span>News</span></label>
       </div>
 
       <p class="muted mt-8">For KR/JP/HK Stocks, must end with .KS / .T / .HK</p>
-      <p class="muted mt-8">Please use responsibly.</p>
-      <p class="muted">API Status: <span id="health">Checking...</span></p>
-      <p class="muted">LLM: <span id="llm">Checking...</span></p>
+      <p class="muted mt-8">Please use responsibly. This agent is not responsible for user's investment.</p>
+      <p class="muted">API: <span id="health">Checking…</span> • LLM: <span id="llm">Checking…</span></p>
     </div>
-    
+
     <div id="out" class="card hidden">
-      <h2 id="title">Result</h2>
+      <h2 id="title">결과</h2>
       <div id="meta" class="muted mb-8"></div>
 
       <h3>💧 Liquidity</h3>
@@ -57,7 +56,7 @@
 
       <!-- 🧠 LLM Summary -->
       <section id="sum-section" class="hidden">
-        <h3>🧠 Analyst Summary (powered by AI)</h3>
+        <h3>🧠 LLM Summary</h3>
         <div id="sum" class="summary muted"></div>
       </section>
 
@@ -66,7 +65,7 @@
         <h3>🗞 News</h3>
         <ul id="news" class="news-list"></ul>
       </section>
-      
+
       <div class="json-toggle mt-12">
         <label class="checkbox">
           <input type="checkbox" id="toggle-json" />
@@ -82,6 +81,6 @@
   <footer class="watermark">© 2025 Powered by @chnxthr</footer>
 
   <!-- 앱 스크립트 -->
-  <script src="https://chanthr.github.io/app.js?v=4" defer></script>
+  <script src="./app.js?v=fix1" defer></script>
 </body>
 </html>
