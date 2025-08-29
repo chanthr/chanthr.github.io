@@ -73,3 +73,7 @@ def predict_batch_ep(body: PredictBatchIn):
 @app.get("/predict/cached")
 def cached():
     return read_cached()
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
