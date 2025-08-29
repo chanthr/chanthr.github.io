@@ -12,11 +12,11 @@ from llm_agent import run_manager, get_model_status as agent_llm_status
 
 app = FastAPI(title="FIN Agent + Predictions", version="1.4")
 
-# ✅ CORS: 일단 확 풀어서 확인 → 문제 해결 후 도메인만 남겨도 됨
+# ✅ CORS: 일단 확 풀어서 확인 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://chanthr.github.io"],      # 운영: 이 한 줄만 두고
-    allow_origin_regex=r"https://.*\.github\.io$",    # 또는 깃헙페이지 전체 허용
+    #allow_origin_regex=r"https://.*\.github\.io$",    # 또는 깃헙페이지 전체 허용
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
