@@ -48,17 +48,32 @@ def _features(df: pd.DataFrame) -> pd.DataFrame:
 def _download(symbol: str, period="2y", interval="1d") -> pd.DataFrame:
     df = yf.download(symbol, period=period, interval=interval, auto_adjust=True, progress=False)
     if not isinstance(df, pd.DataFrame) or df.empty:
+        # ← 2년이 비면 5년으로 재시도
+        df = yf.download(symbol, period="5y", interval=interval, auto_adjust=True, progress=False)
+    if not isinstance(df, pd.DataFrame) or df.empty:
         raise RuntimeError(f"no price for {symbol}")
     return df
 
 def _predict_core(symbol: str) -> dict:
     df = _download(symbol)
     X = _features(df)
-    # 타깃: 다음 날 종가(비율) -> next_close / close - 1
     y = df["Close"].shift(-1).reindex(X.index) / df["Close"].reindex(X.index) - 1
     data = pd.concat([X, y.rename("y")], axis=1).dropna()
+
     if len(data) < 60:
-        raise RuntimeError("not enough data")
+        # ✅ 폴백: 최근 수익률의 EWMA로 예측
+        ret_ewma = float(df["Close"].pct_change().ewm(span=10, adjust=False).mean().iloc[-1])
+        last_close = float(df["Close"].iloc[-1])
+        pred_close = last_close * (1.0 + ret_ewma)
+        signal = "BUY" if ret_ewma > 0.01 else ("SELL" if ret_ewma < -0.01 else "HOLD")
+        return {
+            "symbol": symbol,
+            "last_close": round(last_close, 4),
+            "pred_ret_1d": round(ret_ewma, 6),
+            "pred_close_1d": round(pred_close, 4),
+            "signal": signal,
+            "ts": int(time.time())
+        }
 
     split = int(len(data) * 0.8)
     train, test = data.iloc[:split], data.iloc[split:]
@@ -68,9 +83,8 @@ def _predict_core(symbol: str) -> dict:
     if _HAVE_SK:
         model = Ridge(alpha=1.0)
         model.fit(Xtr.values, ytr.values)
-        pred_ret = float(model.predict(Xte.values)[-1])  # 가장 최근 예측 수익률
+        pred_ret = float(model.predict(Xte.values)[-1])
     else:
-        # 폴백: EWMA 수익률
         pred_ret = float(X["ret1"].ewm(span=10, adjust=False).mean().iloc[-1])
 
     last_close = float(df["Close"].iloc[-1])
