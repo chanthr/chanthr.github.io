@@ -15,13 +15,13 @@ except Exception:
     pass
 
 # --- LangChain / Groq (optional) ---
-_HAVE_LC = True
+_HAVE_LC = False  # ← 기본 False로 두고, 임포트 성공하면 True로 전환
 try:
     from langchain_groq import ChatGroq
     from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
     from langchain_core.output_parsers import StrOutputParser
+    _HAVE_LC = True
 except Exception:
-    __HAVE_LC = False
     ChatGroq = None
     ChatPromptTemplate = None
     MessagesPlaceholder = None
@@ -67,9 +67,7 @@ def _build_llm():
         _GROQ_REASON = f"ChatGroq init failed: {e}"
         return None
 
-
 llm = _build_llm()
-
 
 # =========================
 # yfinance helpers
@@ -81,7 +79,6 @@ def _safe_info(t: yf.Ticker) -> Dict:
     except Exception:
         return {}
 
-
 def _get_company_summary(ticker: str) -> Optional[str]:
     try:
         t = yf.Ticker(ticker.strip())
@@ -89,7 +86,6 @@ def _get_company_summary(ticker: str) -> Optional[str]:
         return info.get("longBusinessSummary") or info.get("longDescription")
     except Exception:
         return None
-
 
 def _latest_value_from_df(df: pd.DataFrame, aliases: List[str]) -> Optional[float]:
     if df is None or getattr(df, "empty", True):
@@ -113,11 +109,9 @@ def _latest_value_from_df(df: pd.DataFrame, aliases: List[str]) -> Optional[floa
                             continue
     return None
 
-
 def _sum_if_present(*vals: Optional[float]) -> Optional[float]:
     present = [v for v in vals if v is not None]
     return sum(present) if present else None
-
 
 def _safe_div(a: Optional[float], b: Optional[float]) -> Optional[float]:
     if a is None or b in (None, 0):
@@ -126,7 +120,6 @@ def _safe_div(a: Optional[float], b: Optional[float]) -> Optional[float]:
         return float(a) / float(b)
     except Exception:
         return None
-
 
 # =========================
 # Core ratio computation
@@ -266,7 +259,6 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
         "notes": "Latest quarterly (fallback to annual) statements via yfinance; ratios are approximations."
     }
 
-
 # =========================
 # Ticker parsing
 # =========================
@@ -284,7 +276,6 @@ def pick_valid_ticker(user_query: str) -> str:
         except Exception:
             continue
     return candidates[0].strip()
-
 
 # =========================
 # Narrative via LLM (optional) + Fallback
@@ -320,7 +311,6 @@ if _HAVE_LC:
          ),
         MessagesPlaceholder("agent_scratchpad"),
     ])
-
 
 def _fallback_narrative(payload: Dict, language: str, business_summary: Optional[str]) -> str:
     ask_lang = "Korean" if language.lower().startswith("ko") else "English"
@@ -385,11 +375,9 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
             "Takeaway: " + overall_verdict()
         )
 
-
 def _make_narrative_with_langchain(payload: Dict, language: str, business_summary: Optional[str]) -> str:
     if llm is None or not _HAVE_LC:
         return _fallback_narrative(payload, language, business_summary)
-
     ask_lang = "Korean" if language.lower().startswith("ko") else "English"
     inputs = {
         "ask_lang": ask_lang,
@@ -402,7 +390,6 @@ def _make_narrative_with_langchain(payload: Dict, language: str, business_summar
         return chain.invoke(inputs)
     except Exception as e:
         return f"[LLM error: {e}]\n" + _fallback_narrative(payload, language, business_summary)
-
 
 # =========================
 # Public entry
@@ -436,13 +423,10 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         "meta": {"source": "Yahoo Finance" if (llm is not None) else "fallback"}
     }
 
-
 if __name__ == "__main__":
     q = input("예: 'AAPL 유동성/건전성 평가' > ").strip()
     out = run_query(q, language="ko")
     print("\n--- Explanation ---\n")
     print(out["explanation"])
 
-
-# 내보낼 심볼
 __all__ = ["run_query", "pick_valid_ticker", "compute_ratios_for_ticker", "llm"]
