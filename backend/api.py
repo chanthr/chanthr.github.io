@@ -6,9 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import re, yfinance as yf
-from finance_agent import run_query, llm
 from predictor import predict_one
-from llm_agent import run_manager   # ✅ llm_agent 사용 (요약/예측/뉴스 한 번에)
+from finance_agent import run_query, llm, get_llm_status as fin_llm_status
+from llm_agent import run_manager, get_model_status as agent_llm_status
 
 app = FastAPI(title="FIN Agent + Predictions", version="1.4")
 
@@ -32,7 +32,11 @@ def opts(path: str):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "finance_llm": fin_llm_status(),   # {'provider': 'groq'|'none', 'ready': bool, 'reason': ...}
+        "agent_llm": agent_llm_status(),   # 동일
+    }
 
 class AnalyseIn(BaseModel):
     query: str
