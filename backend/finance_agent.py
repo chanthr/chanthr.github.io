@@ -3,23 +3,37 @@ import os
 import re
 import json
 from typing import Dict, Optional, List
+
 import pandas as pd
 import yfinance as yf
-from dotenv import load_dotenv
 
-# --- LangChain / Groq ---
-load_dotenv()
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser
-from langchain.tools import tool
+# --- dotenv (optional) ---
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
-# 파일 상단 import 바로 아래에 추가
+# --- LangChain / Groq (optional) ---
+_HAVE_LC = True
+try:
+    from langchain_groq import ChatGroq
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain_core.output_parsers import StrOutputParser
+except Exception:
+    __HAVE_LC = False
+    ChatGroq = None
+    ChatPromptTemplate = None
+    MessagesPlaceholder = None
+    StrOutputParser = None
+
+# --- Streamlit secrets (optional) ---
 try:
     import streamlit as st
     _HAVE_ST = True
 except Exception:
     _HAVE_ST = False
+
 
 def _get_groq_key() -> str:
     key = os.getenv("GROQ_API_KEY", "").strip()
@@ -30,26 +44,32 @@ def _get_groq_key() -> str:
             pass
     return key
 
+
 # ---------------------------
 # Safe LLM builder (Groq)
 # ---------------------------
 _GROQ_REASON = None  # ← 전역 사유 저장
 
 def _build_llm():
+    """LLM 객체를 안전하게 생성(모듈/키 없으면 None)."""
     global _GROQ_REASON
+    if not _HAVE_LC:
+        _GROQ_REASON = "LangChain/Groq modules not available."
+        return None
     try:
         key = _get_groq_key()
         model = os.getenv("GROQ_MODEL", "llama3-8b-8192")
         if not key:
             _GROQ_REASON = "GROQ_API_KEY not found (env nor st.secrets)."
             return None
-        # langchain_groq는 api_key= 사용 (groq_api_key 아님)
         return ChatGroq(model=model, temperature=0.2, api_key=key)
     except Exception as e:
         _GROQ_REASON = f"ChatGroq init failed: {e}"
         return None
 
+
 llm = _build_llm()
+
 
 # =========================
 # yfinance helpers
@@ -61,6 +81,7 @@ def _safe_info(t: yf.Ticker) -> Dict:
     except Exception:
         return {}
 
+
 def _get_company_summary(ticker: str) -> Optional[str]:
     try:
         t = yf.Ticker(ticker.strip())
@@ -68,6 +89,7 @@ def _get_company_summary(ticker: str) -> Optional[str]:
         return info.get("longBusinessSummary") or info.get("longDescription")
     except Exception:
         return None
+
 
 def _latest_value_from_df(df: pd.DataFrame, aliases: List[str]) -> Optional[float]:
     if df is None or getattr(df, "empty", True):
@@ -91,9 +113,11 @@ def _latest_value_from_df(df: pd.DataFrame, aliases: List[str]) -> Optional[floa
                             continue
     return None
 
+
 def _sum_if_present(*vals: Optional[float]) -> Optional[float]:
     present = [v for v in vals if v is not None]
     return sum(present) if present else None
+
 
 def _safe_div(a: Optional[float], b: Optional[float]) -> Optional[float]:
     if a is None or b in (None, 0):
@@ -102,6 +126,7 @@ def _safe_div(a: Optional[float], b: Optional[float]) -> Optional[float]:
         return float(a) / float(b)
     except Exception:
         return None
+
 
 # =========================
 # Core ratio computation
@@ -122,7 +147,7 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
     q_cf = getattr(t, "quarterly_cashflow", None)
     a_cf = getattr(t, "cashflow", None)
 
-    # 회사/가격 정보(가능하면만)
+    # 회사/가격 정보
     info = _safe_info(t)
     company_name = info.get("longName") or info.get("shortName") or ticker
     sector = info.get("sector")
@@ -241,12 +266,6 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
         "notes": "Latest quarterly (fallback to annual) statements via yfinance; ratios are approximations."
     }
 
-# LangChain Tool (optional)
-@tool("finance_health_tool")
-def finance_health_tool(ticker: str) -> str:
-    """티커를 받아 유동성/건전성 비율을 계산해 JSON 문자열로 반환."""
-    data = compute_ratios_for_ticker(ticker)
-    return json.dumps(data, ensure_ascii=False)
 
 # =========================
 # Ticker parsing
@@ -266,39 +285,42 @@ def pick_valid_ticker(user_query: str) -> str:
             continue
     return candidates[0].strip()
 
+
 # =========================
-# Narrative via LangChain
+# Narrative via LLM (optional) + Fallback
 # =========================
-_output_parser = StrOutputParser()
-_prompt = ChatPromptTemplate.from_messages([
-    ("system", 
-     "You are a financial analysis assistant. "
-     "Write in {ask_lang}. "
-     "Be concise and clear. "
-     "When summarizing company description, limit to **30 words maximum (or 30 Korean words if Korean)**."
-    ),
-    ("human",
-     "Return **Markdown only** using **this exact template**:\n\n"
-     "### 회사 개요 / Company overview\n"
-     "{business_summary}\n\n"
-     "### 💧 유동성 / Liquidity\n"
-     "- Current Ratio: <value> (<band>)\n"
-     "- Quick Ratio: <value> (<band>)\n"
-     "- Cash Ratio: <value> (<band>)\n\n"
-     "### 🛡️ 건전성 / Solvency\n"
-     "- Debt-to-Equity: <value> (<band>)\n"
-     "- Debt Ratio: <value> (<band>)\n"
-     "- Interest Coverage: <value> (<band>)\n\n"
-     "### ✅ 종합 평가 / Overall financial health\n"
-     "Provide a **1–2 sentence** overall judgment combining liquidity and solvency.\n\n"
-     "### ℹ️ 핵심 요약 / Takeaway\n"
-     "One short plain-language takeaway.\n\n"
-     "Use the data below.\n"
-     "BUSINESS_SUMMARY:\n{business_summary}\n\n"
-     "RATIOS_JSON:\n{ratios_json}"
-    ),
-    MessagesPlaceholder("agent_scratchpad"),
-])
+if _HAVE_LC:
+    _output_parser = StrOutputParser()
+    _prompt = ChatPromptTemplate.from_messages([
+        ("system",
+         "You are a financial analysis assistant. "
+         "Write in {ask_lang}. "
+         "Be concise and clear. "
+         "When summarizing company description, limit to **30 words maximum (or 30 Korean words if Korean)**."
+         ),
+        ("human",
+         "Return **Markdown only** using **this exact template**:\n\n"
+         "### 회사 개요 / Company overview\n"
+         "{business_summary}\n\n"
+         "### 💧 유동성 / Liquidity\n"
+         "- Current Ratio: <value> (<band>)\n"
+         "- Quick Ratio: <value> (<band>)\n"
+         "- Cash Ratio: <value> (<band>)\n\n"
+         "### 🛡️ 건전성 / Solvency\n"
+         "- Debt-to-Equity: <value> (<band>)\n"
+         "- Debt Ratio: <value> (<band>)\n"
+         "- Interest Coverage: <value> (<band>)\n\n"
+         "### ✅ 종합 평가 / Overall financial health\n"
+         "Provide a **1–2 sentence** overall judgment combining liquidity and solvency.\n\n"
+         "### ℹ️ 핵심 요약 / Takeaway\n"
+         "One short plain-language takeaway.\n\n"
+         "Use the data below.\n"
+         "BUSINESS_SUMMARY:\n{business_summary}\n\n"
+         "RATIOS_JSON:\n{ratios_json}"
+         ),
+        MessagesPlaceholder("agent_scratchpad"),
+    ])
+
 
 def _fallback_narrative(payload: Dict, language: str, business_summary: Optional[str]) -> str:
     ask_lang = "Korean" if language.lower().startswith("ko") else "English"
@@ -310,7 +332,6 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
         b = (node or {}).get("band", "N/A")
         return f"{name}: {'N/A' if v is None else f'{v:.2f}'} ({b})"
 
-    # ✅ 동적 총평
     def overall_verdict():
         score_map = {"Strong": 2, "Fair": 1, "Weak": 0, "N/A": 0}
         bands = [
@@ -346,7 +367,7 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
                 fmt(sol.get("debt_ratio"), "부채비율(TA)"),
                 fmt(sol.get("interest_coverage"), "이자보상배율"),
             ]) + "\n"
-            f"한줄평: {overall_verdict()}"
+            "한줄평: " + overall_verdict()
         )
     else:
         return (
@@ -361,11 +382,12 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
                 fmt(sol.get("debt_ratio"), "Debt Ratio"),
                 fmt(sol.get("interest_coverage"), "Interest Coverage"),
             ]) + "\n"
-            f"Takeaway: {overall_verdict()}"
+            "Takeaway: " + overall_verdict()
         )
 
+
 def _make_narrative_with_langchain(payload: Dict, language: str, business_summary: Optional[str]) -> str:
-    if llm is None:
+    if llm is None or not _HAVE_LC:
         return _fallback_narrative(payload, language, business_summary)
 
     ask_lang = "Korean" if language.lower().startswith("ko") else "English"
@@ -375,11 +397,12 @@ def _make_narrative_with_langchain(payload: Dict, language: str, business_summar
         "ratios_json": json.dumps(payload, ensure_ascii=False),
         "agent_scratchpad": [],
     }
-    chain = _prompt | llm | _output_parser
+    chain = _prompt | llm | _output_parser  # type: ignore[name-defined]
     try:
         return chain.invoke(inputs)
     except Exception as e:
         return f"[LLM error: {e}]\n" + _fallback_narrative(payload, language, business_summary)
+
 
 # =========================
 # Public entry
@@ -413,8 +436,13 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         "meta": {"source": "Yahoo Finance" if (llm is not None) else "fallback"}
     }
 
+
 if __name__ == "__main__":
     q = input("예: 'AAPL 유동성/건전성 평가' > ").strip()
     out = run_query(q, language="ko")
     print("\n--- Explanation ---\n")
     print(out["explanation"])
+
+
+# 내보낼 심볼
+__all__ = ["run_query", "pick_valid_ticker", "compute_ratios_for_ticker", "llm"]
