@@ -6,13 +6,13 @@
   <title>📊 LSA Agent</title>
   <meta name="description" content="Liquidity & Solvency Analysis - Powered by fin agent v1" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <!-- 캐시버스터 v=1 추가 -->
+  <!-- 캐시버스터 v=1 -->
   <link rel="stylesheet" href="./style.css?v=1" />
 </head>
 <body>
   <div class="wrap">
     <h1>📊 Liquidity & Solvency Analysis</h1>
-    <p class="muted">Powered by finance agent v1.0 </p>
+    <p class="muted">Powered by finance agent v1.0</p>
 
     <div class="card">
       <div class="row align-center">
@@ -23,7 +23,7 @@
         </select>
         <button id="go">🔎 Analyse</button>
       </div>
-      <p class="muted mt-8">For KR/JP/HK Stocks, must end with .KS / .T / .HK </p>
+      <p class="muted mt-8">For KR/JP/HK Stocks, must end with .KS / .T / .HK</p>
       <p class="muted">API Status: <span id="health">Checking...</span></p>
     </div>
 
@@ -37,8 +37,20 @@
       <h3>🛡️ Solvency</h3>
       <div id="sol" class="grid grid-3"></div>
 
+      <!-- 🔮 예측 -->
+      <h3>🔮 Prediction (1-Day)</h3>
+      <div id="pred" class="grid grid-3"></div>
+
+      <!-- 🧠 요약 -->
+      <h3>🧠 LLM Summary</h3>
+      <div id="sum" class="summary muted"></div>
+
       <h3>📝 Narrative</h3>
       <div id="narr" class="muted"></div>
+
+      <!-- 🗞 뉴스 -->
+      <h3>🗞 News</h3>
+      <ul id="news" class="news-list"></ul>
 
       <div class="json-toggle mt-12">
         <label class="checkbox">
@@ -46,16 +58,15 @@
           <span>Show raw JSON</span>
         </label>
       </div>
-
       <div id="jsonWrap" class="json-wrap hidden">
         <pre id="raw"></pre>
       </div>
     </div>
   </div>
 
-  <footer class="watermark">© 2025 Powered by @chnxthr </footer>
+  <footer class="watermark">© 2025 Powered by @chnxthr</footer>
 
-  <!-- 앱 스크립트 (defer) -->
+  <!-- 앱 스크립트 -->
   <script src="./app.js" defer></script>
 </body>
 </html>
