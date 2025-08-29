@@ -28,17 +28,36 @@ except Exception:
 
 
 # ---------------- LLM 모델 (옵션) ----------------
+_LLM_PROVIDER = "none"
+_LLM_REASON = None
+
 def _build_model():
+    global _LLM_PROVIDER, _LLM_REASON
     if not _HAVE_LLM:
+        _LLM_REASON = "langchain_groq not installed"
+        _LLM_PROVIDER = "none"
         return None
     key = (os.getenv("GROQ_API_KEY") or "").strip()
     model_name = os.getenv("GROQ_MODEL", "llama3-8b-8192")
     if not key:
+        _LLM_REASON = "GROQ_API_KEY missing"
+        _LLM_PROVIDER = "none"
         return None
-    return ChatGroq(model=model_name, temperature=0.2, api_key=key)
+    try:
+        m = ChatGroq(model=model_name, temperature=0.2, api_key=key)
+        _LLM_PROVIDER = "groq"   # ✅ Groq 사용
+        return m
+    except Exception as e:
+        _LLM_REASON = f"ChatGroq init failed: {e}"
+        _LLM_PROVIDER = "none"
+        return None
 
 _model = _build_model()
 
+# ✅ 추가: 에이전트 LLM 상태
+def get_model_status() -> dict:
+    return {"provider": _LLM_PROVIDER, "ready": bool(_model), "reason": _LLM_REASON}
+    
 
 # ---------------- 안전한 1D 예측 폴백 ----------------
 def _predict_fallback(symbol: str) -> dict:
@@ -251,13 +270,16 @@ def run_manager(query: str, language: str = "ko", include_news: bool = True) -> 
     # 5) 안전한 리턴(필드 항상 존재)
     core = ana.get("core") or {}
     return {
-        "ticker": core.get("ticker") or sym,
-        "company": core.get("company"),
-        "price": core.get("price"),
+        "ticker": ana["core"]["ticker"],
+        "company": ana["core"]["company"],
+        "price": ana["core"]["price"],
         "analysis": ana,
         "prediction": pred,
         "news": news,
-        "summary": text or ""
+        "summary": text,
+        "meta": {                         # ✅ 추가
+            "llm_provider": _LLM_PROVIDER,
+            "llm_ready": bool(_model),
     }
 
-__all__ = ["run_manager"]
+__all__ = ["run_manager", "get_model_status"]  # ✅ 내보내기
