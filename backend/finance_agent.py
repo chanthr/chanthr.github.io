@@ -49,25 +49,37 @@ def _get_groq_key() -> str:
 # Safe LLM builder (Groq)
 # ---------------------------
 _GROQ_REASON = None  # ← 전역 사유 저장
+_LLM_PROVIDER = "none"   # added
 
 def _build_llm():
     """LLM 객체를 안전하게 생성(모듈/키 없으면 None)."""
-    global _GROQ_REASON
+    global _GROQ_REASON, _LLM_PROVIDER
     if not _HAVE_LC:
         _GROQ_REASON = "LangChain/Groq modules not available."
+        _LLM_PROVIDER = "none"
         return None
     try:
         key = _get_groq_key()
         model = os.getenv("GROQ_MODEL", "llama3-8b-8192")
         if not key:
             _GROQ_REASON = "GROQ_API_KEY not found (env nor st.secrets)."
+            _LLM_PROVIDER = "none"
             return None
+        _LLM_PROVIDER = "groq"  # ✅ Groq 사용
         return ChatGroq(model=model, temperature=0.2, api_key=key)
     except Exception as e:
         _GROQ_REASON = f"ChatGroq init failed: {e}"
+        _LLM_PROVIDER = "none"
         return None
 
 llm = _build_llm()
+
+def get_llm_status() -> Dict[str, object]:
+    return {
+        "provider": _LLM_PROVIDER,    # "groq" or "none"
+        "ready": bool(llm),
+        "reason": _GROQ_REASON,       # 준비 안 됐을 때 사유
+    }
 
 # =========================
 # yfinance helpers
@@ -429,4 +441,10 @@ if __name__ == "__main__":
     print("\n--- Explanation ---\n")
     print(out["explanation"])
 
-__all__ = ["run_query", "pick_valid_ticker", "compute_ratios_for_ticker", "llm"]
+__all__ = [
+    "run_query",
+    "pick_valid_ticker",
+    "compute_ratios_for_ticker",
+    "llm",
+    "get_llm_status",   # ✅ 추가
+]
