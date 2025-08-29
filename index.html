@@ -5,35 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>📊 LSA Tool (Frontend)</title>
   <meta name="description" content="Liquidity & Solvency Analysis – GitHub Pages frontend calling FastAPI backend" />
+  <!-- Optional Markdown renderer for nicer narrative -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
-    :root { --bg:#0f1117; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --border:#334155; }
-    html,body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0}
-    a{color:#93c5fd}
-
-    /* Layout */
-    .layout{display:grid;grid-template-columns:280px 1fr;min-height:100vh}
-    @media (max-width: 900px){ .layout{grid-template-columns:1fr} .sidebar{position:fixed;inset:0 30% 0 0;transform:translateX(-100%);transition:transform .2s ease;z-index:50} .sidebar.open{transform:translateX(0)} .sidebar-backdrop{position:fixed;inset:0;backdrop-filter:blur(2px);background:rgba(0,0,0,.4);display:none;z-index:40} .sidebar.open + .sidebar-backdrop{display:block} }
-
-    /* Sidebar (toolbar) */
-    .sidebar{background:#0b1220;border-right:1px solid var(--border);padding:16px}
-    .brand{display:flex;align-items:center;gap:8px;margin-bottom:12px}
-    .muted{color:var(--muted);font-size:13px}
-    .sep{height:1px;background:var(--border);margin:12px 0}
-    .side-item{margin-bottom:10px}
-    input,select,button{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1526;color:var(--text)}
-    button{cursor:pointer}
-    .btn-primary{background:#1f2937;border-color:#374151}
-
-    /* Top bar (mobile) */
-    .topbar{display:none;position:sticky;top:0;background:rgba(15,17,23,.85);backdrop-filter:blur(6px);border-bottom:1px solid var(--border);z-index:30}
-    .topbar-inner{display:flex;align-items:center;gap:8px;padding:10px 14px}
-    @media (max-width:900px){ .topbar{display:block} }
-
-    /* Content */
-    .content{padding:20px}
-    .wrap{max-width:1100px;margin:0 auto}
+    :root {
+      --bg:#0f1117; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --border:#334155;
+    }
+    html,body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0}
+    .wrap{max-width:980px;margin:0 auto;padding:24px}
     .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-top:16px;box-shadow:0 4px 20px rgba(0,0,0,.25)}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    input,select,button{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text)}
+    button{cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
     .grid{display:grid;gap:12px}
     .grid-3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
     .ratio{border:1px solid var(--border);border-radius:12px;padding:12px}
@@ -42,108 +26,60 @@
     .badge.Fair{background:#f59e0b}
     .badge.Weak{background:#ef4444}
     pre{white-space:pre-wrap;background:#0b1220;padding:12px;border-radius:12px;overflow:auto}
-
-    /* Floating settings button (mobile) */
-    .fab{display:none;position:fixed;right:16px;bottom:16px;background:#1f2937;border:1px solid var(--border);padding:10px 12px;border-radius:10px;z-index:60}
-    @media (max-width:900px){ .fab{display:block} }
-
-    /* Spinner */
-    .spinner{display:none;position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,.35);z-index:70}
-    .spinner.show{display:flex}
+    a { color: #93c5fd; }
   </style>
 </head>
 <body>
-  <!-- Mobile top bar -->
-  <div class="topbar">
-    <div class="topbar-inner">
-      <button id="openSidebar">☰</button>
-      <strong>📊 LSA Tool</strong>
-      <span id="healthTop" class="muted" style="margin-left:auto">상태 확인 중…</span>
+  <div class="wrap">
+    <h1>📊 LSA Tool</h1>
+    <p class="muted">GitHub Pages 정적 프론트에서 FastAPI 백엔드(API)를 호출합니다.</p>
+
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <input id="ticker" placeholder="AAPL / 005930.KS / 7203.T" style="flex:1" />
+        <select id="lang">
+          <option value="ko">한국어</option>
+          <option value="en">English</option>
+        </select>
+        <button id="go">🔎 Analyse</button>
+      </div>
+      <p class="muted" style="margin-top:8px">KR/JP/HK 종목은 .KS / .T / .HK 접미사를 붙여주세요.</p>
+      <p class="muted">API 상태: <span id="health">확인 중…</span></p>
+    </div>
+
+    <div id="out" class="card" style="display:none">
+      <h2 id="title">결과</h2>
+      <div id="meta" class="muted" style="margin-bottom:8px"></div>
+
+      <h3>💧 Liquidity</h3>
+      <div id="liq" class="grid grid-3"></div>
+      <h3>🛡️ Solvency</h3>
+      <div id="sol" class="grid grid-3"></div>
+
+      <h3>📝 Narrative</h3>
+      <div id="narr" class="muted"></div>
+
+      <details style="margin-top:12px">
+        <summary>Raw JSON</summary>
+        <pre id="raw"></pre>
+      </details>
     </div>
   </div>
 
-  <div class="layout">
-    <!-- Sidebar / Toolbar -->
-    <aside id="sidebar" class="sidebar">
-      <div class="brand"><span>📊</span><strong>LSA Tool</strong></div>
-      <div class="muted">GitHub Pages 프론트 → FastAPI 백엔드 호출</div>
-      <div class="sep"></div>
-
-      <label class="side-item muted">API 상태</label>
-      <div class="side-item"><span id="health">확인 중…</span></div>
-
-      <div class="sep"></div>
-
-      <label class="side-item muted">Language</label>
-      <select id="lang" class="side-item">
-        <option value="ko">한국어</option>
-        <option value="en">English</option>
-      </select>
-
-      <label class="side-item muted">Ticker</label>
-      <input id="ticker" class="side-item" placeholder="AAPL / 005930.KS / 7203.T" />
-
-      <div class="side-item">
-        <input type="checkbox" id="showJson" /> <label for="showJson">Show JSON</label>
-      </div>
-
-      <button id="go" class="btn-primary side-item">🔄 Re-Analyse</button>
-
-      <div class="sep"></div>
-      <div class="muted">KR/JP/HK 종목은 .KS / .T / .HK 접미사를 붙여주세요.</div>
-    </aside>
-    <div class="sidebar-backdrop" id="backdrop"></div>
-
-    <!-- Main content -->
-    <main class="content">
-      <div class="wrap">
-        <div class="card">
-          <h1 style="margin:0 0 4px 0">결과</h1>
-          <div id="meta" class="muted">Ready.</div>
-        </div>
-
-        <div id="out" class="card" style="display:none">
-          <h2 id="title" style="margin-top:0">—</h2>
-          <div class="muted" style="margin-bottom:8px" id="priceSrc"></div>
-
-          <h3>💧 Liquidity</h3>
-          <div id="liq" class="grid grid-3"></div>
-          <h3>🛡️ Solvency</h3>
-          <div id="sol" class="grid grid-3"></div>
-
-          <h3>📝 Narrative</h3>
-          <div id="narr" class="muted"></div>
-
-          <details id="rawWrap" style="margin-top:12px;display:none">
-            <summary>Raw JSON</summary>
-            <pre id="raw"></pre>
-          </details>
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <button class="fab" id="fab">⚙️</button>
-  <div class="spinner" id="spinner"><div class="card">⏳ Analyzing…</div></div>
-
   <script>
-    // 🔧 배포한 FastAPI 백엔드 주소
-    const API_BASE = "https://chanthr-github-io.onrender.com"; // Render URL
+    // 🔧 배포한 FastAPI 백엔드 주소로 바꿔주세요
+    const API_BASE = "https://chanthr-github-io.onrender.com"; // ← 여길 본인 Render URL로
 
     const $ = s => document.querySelector(s);
-    const sidebar = $("#sidebar"), backdrop=$("#backdrop"), fab=$("#fab"), openBtn=$("#openSidebar");
+    const goBtn = $("#go");
 
-    // Sidebar toggles (mobile)
-    function openSide(){ sidebar.classList.add('open'); }
-    function closeSide(){ sidebar.classList.remove('open'); }
-    if(openBtn) openBtn.onclick=openSide; if(backdrop) backdrop.onclick=closeSide; if(fab) fab.onclick=openSide;
-
-    // Health check
+    // 간단한 헬스체크
     async function checkHealth(){
-      try{ const r = await fetch(`${API_BASE}/health`, {cache:'no-store'}); const d = await r.json();
-        $("#health").textContent = d?.status==='ok' ? 'OK' : '오류';
-        $("#healthTop").textContent = d?.status==='ok' ? 'OK' : '오류';
-      }catch{ $("#health").textContent='접속 실패'; $("#healthTop").textContent='접속 실패'; }
+      try{
+        const r = await fetch(`${API_BASE}/health`, {cache:'no-store'});
+        const data = await r.json();
+        $("#health").textContent = data?.status === 'ok' ? 'OK' : '오류';
+      }catch(e){ $("#health").textContent = '접속 실패'; }
     }
     checkHealth();
 
@@ -158,9 +94,9 @@
     async function analyse(){
       const t = $("#ticker").value.trim().toUpperCase();
       const lang = $("#lang").value;
-      const showJson = $("#showJson").checked;
       if(!t){ alert('티커를 입력하세요.'); return; }
-      $("#spinner").classList.add('show');
+      goBtn.disabled = true; goBtn.textContent = '⏳ Analyzing...';
+      $("#out").style.display = 'none';
       try{
         const res = await fetch(`${API_BASE}/analyse`,{
           method:'POST', headers:{'Content-Type':'application/json'},
@@ -169,27 +105,42 @@
         if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
         const data = await res.json();
 
+        // 헤더/메타
         $("#title").textContent = `${data.core?.company||'-'} (${data.core?.ticker||'-'})`;
-        $("#priceSrc").textContent = `Last Price: ${data.core?.price ?? 'N/A'} • Source: ${data.meta?.source || '-'}`;
+        $("#meta").textContent = `Last Price: ${data.core?.price ?? 'N/A'}  •  Source: ${data.meta?.source || '-'}`;
 
-        const liq = data.core?.ratios?.Liquidity || {}; const sol = data.core?.ratios?.Solvency || {};
-        $("#liq").innerHTML = [ratioCard('Current Ratio', liq.current_ratio), ratioCard('Quick Ratio', liq.quick_ratio), ratioCard('Cash Ratio', liq.cash_ratio)].join('');
-        $("#sol").innerHTML = [ratioCard('Debt-to-Equity', sol.debt_to_equity), ratioCard('Debt Ratio', sol.debt_ratio), ratioCard('Interest Coverage', sol.interest_coverage)].join('');
+        // 비율 카드
+        const liq = data.core?.ratios?.Liquidity || {};
+        const sol = data.core?.ratios?.Solvency || {};
+        $("#liq").innerHTML = [
+          ratioCard('Current Ratio', liq.current_ratio),
+          ratioCard('Quick Ratio', liq.quick_ratio),
+          ratioCard('Cash Ratio', liq.cash_ratio)
+        ].join('');
+        $("#sol").innerHTML = [
+          ratioCard('Debt-to-Equity', sol.debt_to_equity),
+          ratioCard('Debt Ratio', sol.debt_ratio),
+          ratioCard('Interest Coverage', sol.interest_coverage)
+        ].join('');
 
+        // 내러티브 Markdown 렌더(없으면 프리텍스트)
         const md = (data.explanation || '').trim();
-        if(window.marked){ $("#narr").innerHTML = marked.parse(md); } else { $("#narr").textContent = md; }
+        if(window.marked){ $("#narr").innerHTML = marked.parse(md); }
+        else { $("#narr").textContent = md; }
 
+        // Raw
         $("#raw").textContent = JSON.stringify(data, null, 2);
-        $("#rawWrap").style.display = showJson ? 'block':'none';
         $("#out").style.display = 'block';
-        $("#meta").textContent = 'Ready.';
-      }catch(e){ alert('분석 실패: '+ e.message + '
-(API_BASE 확인 및 /health 체크)'); }
-      finally{ $("#spinner").classList.remove('show'); closeSide(); }
+      }catch(e){
+        alert('분석 실패: '+ e.message + '\n(API_BASE 확인 및 /health 체크)');
+      }finally{
+        goBtn.disabled = false; goBtn.textContent = '🔎 Analyse';
+      }
     }
 
-    $("#go").addEventListener('click', analyse);
-    $("#ticker").addEventListener('keydown', e=>{ if(e.key==='Enter') analyse(); });
+    goBtn.addEventListener('click', analyse);
+    // Enter 키로 실행
+    $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyse(); });
   </script>
 </body>
 </html>
