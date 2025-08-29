@@ -3,7 +3,6 @@ import os
 import re
 import json
 from typing import Dict, Optional, List
-
 import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
