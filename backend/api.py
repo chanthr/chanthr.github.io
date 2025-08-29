@@ -134,20 +134,18 @@ def agent(body: AgentIn):
     core = (analysis or {}).get("core") or {}
     symbol = core.get("ticker") or body.query.strip().upper()
 
-    # 예측은 실패해도 구조 보장
+    # 예측 (에러 무시)
     try:
         prediction = predict_one(symbol, force=False)
     except Exception as e:
         prediction = {"symbol": symbol, "error": f"{type(e).__name__}: {e}"}
 
     price = _live_price(symbol) or core.get("price")
-    news = _news(symbol) if body.include_news else []
 
-    try:
-        summary = _short_summary(analysis.get("explanation", ""), body.language)
-    except Exception:
-        summary = ""
+    # 🔽 언어 기반 뉴스
+    news = _news(symbol, language=body.language) if body.include_news else []
 
+    summary = _short_summary(analysis.get("explanation", ""), body.language) or ""
     return {
         "ticker": symbol,
         "price": price,
