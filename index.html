@@ -25,9 +25,9 @@
 
       <!-- ✅ 검색 전에 고르는 표시 옵션 -->
       <div class="row align-center mt-8 opt-row">
-        <label class="checkbox"><input type="checkbox" id="opt-pred" checked /> <span>Predict</span></label>
-        <label class="checkbox"><input type="checkbox" id="opt-sum"  checked /> <span>Analyst by AI</span></label>
-        <label class="checkbox"><input type="checkbox" id="opt-news" checked /> <span>News</span></label>
+        <label class="checkbox"><input type="checkbox" id="opt-pred" /> <span>Predict</span></label>
+        <label class="checkbox"><input type="checkbox" id="opt-sum" /> <span>Analyst by AI</span></label>
+        <label class="checkbox"><input type="checkbox" id="opt-news" /> <span>News</span></label>
       </div>
     
       <p class="muted mt-8">For KR/JP/HK Stocks, must end with .KS / .T / .HK</p>
@@ -49,19 +49,19 @@
       <div id="narr" class="muted"></div>
 
       <!-- 🔮 Prediction 섹션 (토글용 래퍼) -->
-      <section id="pred-section">
+      <section id="pred-section" class="hidden">
         <h3>🔮 Prediction (1-Day)</h3>
         <div id="pred" class="grid grid-3"></div>
       </section>
 
       <!-- 🧠 LLM Summary 섹션 (토글용 래퍼) -->
-      <section id="sum-section">
+     <section id="pred-section" class="hidden">
         <h3>🧠 LLM Summary</h3>
         <div id="sum" class="summary muted"></div>
       </section>
 
       <!-- 🗞 News 섹션 (토글용 래퍼) -->
-      <section id="news-section">
+      <section id="pred-section" class="hidden">
         <h3>🗞 News</h3>
         <ul id="news" class="news-list"></ul>
       </section>
