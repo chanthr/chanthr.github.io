@@ -1,15 +1,15 @@
 # api.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
-import yfinance as yf
-from finance_agent import run_query, llm  # llm은 요약시 사용(없으면 폴백)
+import re, yfinance as yf
+
+from finance_agent import run_query, llm
 from predictor import predict_one
 
-app = FastAPI(title="FIN Agent + Predictions", version="1.2")
+app = FastAPI(title="FIN Agent + Predictions", version="1.3")
 
-# ✅ CORS (GitHub Pages: chanthr.github.io)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://chanthr.github.io"],
@@ -22,7 +22,6 @@ app.add_middleware(
 def health():
     return {"status": "ok"}
 
-# ---------- 스키마 ----------
 class AnalyseIn(BaseModel):
     query: str
     language: str = "ko"
@@ -36,11 +35,9 @@ class AgentIn(BaseModel):
     language: str = "ko"
     include_news: bool = True
 
-# ---------- 도우미 ----------
 def _live_price(sym: str):
     try:
-        t = yf.Ticker(sym)
-        fi = getattr(t, "fast_info", {}) or {}
+        fi = (yf.Ticker(sym).fast_info or {})
         lp = fi.get("last_price")
         return float(lp) if lp is not None else None
     except Exception:
@@ -48,71 +45,76 @@ def _live_price(sym: str):
 
 def _news(sym: str):
     try:
-        t = yf.Ticker(sym)
-        items = getattr(t, "news", []) or []
-        # 필요한 키만 추림
-        out = []
-        for n in items[:10]:
-            out.append({
-                "title": n.get("title"),
-                "link": n.get("link"),
-                "providerPublishTime": n.get("providerPublishTime") or n.get("pubTime")
-            })
-        return out
+        items = getattr(yf.Ticker(sym), "news", []) or []
+        return [{
+            "title": n.get("title"),
+            "link": n.get("link"),
+            "providerPublishTime": n.get("providerPublishTime") or n.get("pubTime"),
+        } for n in items[:10]]
     except Exception:
         return []
 
 def _short_summary(text: str, language: str) -> str:
-    """LLM 있으면 1~2문장 요약, 없으면 첫 문장 폴백."""
     if not text:
         return ""
-    try:
-        if llm is not None:
-            ask_lang = "Korean" if language.lower().startswith("ko") else "English"
-            prompt = (
-                f"Summarize in {ask_lang}. "
-                "Return ONE or TWO short sentences max, plain text only. Text:\n\n" + text
-            )
-            return llm.invoke(prompt).content.strip()
-    except Exception:
-        pass
-    # 폴백: 첫 문장만
-    cut = text.strip().split("\n", 1)[0]
-    return cut[:240]
+    # 코드블록/마크다운 제거
+    s = re.sub(r"```.*?```", " ", text, flags=re.S)
+    s = re.sub(r"`[^`]*`", " ", s)
+    s = re.sub(r"^#{1,6}\s*", "", s, flags=re.M)  # 헤더 # 제거
+    s = re.sub(r"[*_\[\]()>-]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return ""
+    # 한/영 첫 문장
+    if language.lower().startswith("ko"):
+        m = re.split(r"(?:다\.|요\.|\.|\?|!)\s", s, maxsplit=1)
+        first = (m[0] or s).strip()
+    else:
+        m = re.split(r"(?<=[\.\?!])\s", s, maxsplit=1)
+        first = (m[0] or s).strip()
+    return first[:240]
 
-# ---------- 라우트 ----------
 @app.post("/analyse")
 def analyse(body: AnalyseIn):
-    # 기존 프론트가 쓰는 엔드포인트 (그대로)
     return run_query(body.query, language=body.language)
 
 @app.post("/predict")
 def predict(body: PredictIn):
-    # predictor.py 기반 1일 예측
-    return predict_one(body.symbol, force=body.force)
+    try:
+        out = predict_one(body.symbol, force=body.force)
+        out["live_price"] = _live_price(body.symbol)
+        return out
+    except Exception as e:
+        # ❗ 프론트에서 읽을 수 있게 200으로 에러 메시지 제공
+        return JSONResponse(status_code=200, content={
+            "symbol": body.symbol, "error": f"{type(e).__name__}: {e}"
+        })
 
 @app.post("/agent")
 def agent(body: AgentIn):
-    # 1) 재무분석
     analysis = run_query(body.query, language=body.language)
     core = (analysis or {}).get("core") or {}
     symbol = core.get("ticker") or body.query.strip().upper()
 
-    # 2) 예측
-    prediction = predict_one(symbol, force=False)
+    # 예측은 실패해도 구조 보장
+    try:
+        prediction = predict_one(symbol, force=False)
+    except Exception as e:
+        prediction = {"symbol": symbol, "error": f"{type(e).__name__}: {e}"}
 
-    # 3) 실시간가(가능하면) / 뉴스(옵션)
     price = _live_price(symbol) or core.get("price")
     news = _news(symbol) if body.include_news else []
 
-    # 4) LLM 한줄 요약
-    summary = _short_summary(analysis.get("explanation",""), body.language)
+    try:
+        summary = _short_summary(analysis.get("explanation", ""), body.language)
+    except Exception:
+        summary = ""
 
     return {
         "ticker": symbol,
         "price": price,
-        "analysis": analysis,      # 기존 구조 유지 (core/ratios/explanation/meta)
-        "prediction": prediction,  # symbol/last_close/pred_ret_1d/pred_close_1d/signal/ts
+        "analysis": analysis,
+        "prediction": prediction,
         "summary": summary,
         "news": news,
     }
