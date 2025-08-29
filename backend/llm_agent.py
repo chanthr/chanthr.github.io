@@ -280,6 +280,7 @@ def run_manager(query: str, language: str = "ko", include_news: bool = True) -> 
         "meta": {                         # ✅ 추가
             "llm_provider": _LLM_PROVIDER,
             "llm_ready": bool(_model),
+        }
     }
 
 __all__ = ["run_manager", "get_model_status"]  # ✅ 내보내기
