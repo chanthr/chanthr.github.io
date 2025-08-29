@@ -411,7 +411,7 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         },
         "notes": payload.get("notes"),
         "explanation": explanation,
-        "meta": {"source": "llm" if (llm is not None) else "fallback"}
+        "meta": {"source": "Yahoo Finance" if (llm is not None) else "fallback"}
     }
 
 if __name__ == "__main__":
