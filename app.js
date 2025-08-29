@@ -65,15 +65,27 @@ function getPrefs(){
   const news = $("#opt-news")?.checked ?? false;
   return { pred, sum, news };
 }
+
+// 래퍼 자동 탐지: id가 잘못되어 있어도 #pred/#sum/#news의 근접 section을 찾아 토글
+function findWrap(childSel, preferredIdSel){
+  const byId = document.querySelector(preferredIdSel);
+  if (byId) return byId;
+  const child = document.querySelector(childSel);
+  if (child && child.closest) {
+    const sec = child.closest('section');
+    if (sec) return sec;
+  }
+  return child ? child.parentElement : null;
+}
+
 function applySectionVisibility(p){
-  const S = {
-    pred: $("#pred-section"),
-    sum:  $("#sum-section"),
-    news: $("#news-section"),
-  };
-  if (S.pred) S.pred.classList.toggle('hidden', !p.pred);
-  if (S.sum)  S.sum.classList.toggle('hidden',  !p.sum);
-  if (S.news) S.news.classList.toggle('hidden', !p.news);
+  const predWrap = findWrap('#pred', '#pred-section');
+  const sumWrap  = findWrap('#sum',  '#sum-section');
+  const newsWrap = findWrap('#news', '#news-section');
+
+  if (predWrap) predWrap.classList.toggle('hidden', !p.pred);
+  if (sumWrap)  sumWrap.classList.toggle('hidden',  !p.sum);
+  if (newsWrap) newsWrap.classList.toggle('hidden', !p.news);
 }
 
 // ========== Health ==========
@@ -140,7 +152,6 @@ async function analyse(){
 // ========== 에이전트 섹션 (/agent) ==========
 async function renderAgentExtras(ticker, lang, prefs){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
-  // 준비 상태
   if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
   if (prefs.sum  && sumEl)  sumEl.textContent = '';
   if (prefs.news && newsEl) newsEl.innerHTML = '';
@@ -155,18 +166,25 @@ async function renderAgentExtras(ticker, lang, prefs){
         include_news: !!prefs.news
       })
     });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const ag = await r.json();
     console.log("[/agent]", ag);
 
-    if (prefs.pred && predEl) predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
-    if (prefs.sum  && sumEl)  sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
-
+    if (prefs.pred && predEl) {
+      predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
+      predEl.closest('section')?.classList.remove('hidden');
+    }
+    if (prefs.sum  && sumEl)  {
+      sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
+      sumEl.closest('section')?.classList.remove('hidden');
+    }
     if (prefs.news && newsEl) {
       if (Array.isArray(ag.news) && ag.news.length) {
         newsEl.innerHTML = newsList(ag.news);
       } else {
         newsEl.innerHTML = `<li class="muted">No recent headlines.</li>`;
       }
+      newsEl.closest('section')?.classList.remove('hidden');
     }
   }catch(e){
     console.error("agent error", e);
@@ -179,27 +197,22 @@ async function renderAgentExtras(ticker, lang, prefs){
 // ========== 메인 플로우 ==========
 async function analyseWithExtras(){
   const prefs = getPrefs();
-  applySectionVisibility(prefs);      // ✅ 클릭 즉시 섹션 show/hide 반영
-
+  applySectionVisibility(prefs);      // 클릭 즉시 섹션 show/hide 반영
   await analyse();                    // 재무 분석
 
   const t = $("#ticker").value.trim().toUpperCase();
   const lang = $("#lang").value;
 
-  // 아무것도 선택 안 했으면 추가 호출 X
-  if (!prefs.pred && !prefs.sum && !prefs.news) return;
-
-  // 선택된 항목만 렌더
-  await renderAgentExtras(t, lang, prefs);
+  if (!prefs.pred && !prefs.sum && !prefs.news) return; // 선택 없으면 추가 호출 X
+  await renderAgentExtras(t, lang, prefs);               // 선택된 항목만 렌더
 }
 
 // ========== Boot ==========
 document.addEventListener('DOMContentLoaded', () => {
-  // 초기 상태: 체크 해제 → 섹션 숨김
-  applySectionVisibility(getPrefs());
+  applySectionVisibility(getPrefs()); // 초기 체크 해제 상태 반영
   checkHealth();
 
-  // 🔴 중복 바인딩 없이 오직 analyseWithExtras만 연결
+  // 오직 analyseWithExtras에만 바인딩
   $("#go").addEventListener('click', analyseWithExtras);
   $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyseWithExtras(); });
 
@@ -211,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 체크박스 바꾸면 섹션 가시성 즉시 반영(검색 전에 미리 보여주고/숨김)
+  // 체크박스 변경 시 섹션 가시성 즉시 반영
   ["#opt-pred","#opt-sum","#opt-news"].forEach(id=>{
     const el = $(id);
     if (el) el.addEventListener('change', ()=> applySectionVisibility(getPrefs()));
