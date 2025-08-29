@@ -2,6 +2,15 @@
 const API_BASE = "https://chanthr-github-io.onrender.com";
 const $ = (s, el = document) => el.querySelector(s);
 
+// 전역 에러 캐치(스크립트 초기 에러도 화면에 노출)
+window.onerror = (m, src, line, col, err) => {
+  console.error("[window.onerror]", m, src, line, col, err);
+  const hl = $("#health"); if (hl) hl.textContent = "Script error";
+};
+window.onunhandledrejection = (e) => {
+  console.error("[unhandledrejection]", e.reason || e);
+};
+
 // ========== UI helpers ==========
 function ratioCard(title, node){
   if(!node) return '';
@@ -66,7 +75,6 @@ function getPrefs(){
   return { pred, sum, news };
 }
 
-// id가 잘못돼도 #pred/#sum/#news의 가장 가까운 section을 찾아 토글
 function findWrap(childSel, preferredIdSel){
   const byId = document.querySelector(preferredIdSel);
   if (byId) return byId;
@@ -89,7 +97,7 @@ function applySectionVisibility(p){
 }
 
 // ========== 유틸리티 ==========
-async function fetchJSON(url, opts={}, timeoutMs=9000){
+async function fetchJSON(url, opts={}, timeoutMs=15000){
   const ctrl = new AbortController();
   const t = setTimeout(()=>ctrl.abort(), timeoutMs);
   try{
@@ -107,8 +115,8 @@ async function fetchJSON(url, opts={}, timeoutMs=9000){
 async function checkHealth(){
   const apiEl = $("#health");
   const llmEl = $("#llm");
-  if (apiEl) apiEl.textContent = "Checking...";
-  if (llmEl) llmEl.textContent = "Checking...";
+  if (apiEl) apiEl.textContent = "Checking…";
+  if (llmEl) llmEl.textContent = "Checking…";
 
   try{
     const h = await fetchJSON(`${API_BASE}/health?t=${Date.now()}`);
@@ -116,7 +124,6 @@ async function checkHealth(){
 
     const on = (x)=> x && x.ready && x.provider ? `${x.provider.toUpperCase()} ON` : `Fallback (${x?.reason || "no LLM"})`;
     if (llmEl) llmEl.textContent = `Finance: ${on(h?.finance_llm)}  •  Agent: ${on(h?.agent_llm)}`;
-
     console.log("LLM status:", h?.finance_llm, h?.agent_llm);
   }catch(e){
     console.error("health error", e);
@@ -130,6 +137,9 @@ async function analyse(){
   const goBtn = $("#go");
   const t = $("#ticker").value.trim().toUpperCase();
   const lang = $("#lang").value;
+
+  console.log("[click] Analyse pressed", { t, lang });
+
   if(!t){ alert('Ticker Symbol of the company.'); return; }
 
   goBtn.disabled = true; 
@@ -142,6 +152,8 @@ async function analyse(){
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ query: `${t} 유동성/건전성 평가`, language: lang })
     });
+
+    console.log("[/analyse] ok", data);
 
     $("#title").textContent = `${data.core?.company || '-'} (${data.core?.ticker || '-'})`;
     $("#meta").textContent  = `Last Price: ${data.core?.price ?? 'N/A'}  •  Source: ${data.meta?.source || '-'}`;
@@ -166,7 +178,8 @@ async function analyse(){
     $("#raw").textContent = JSON.stringify(data, null, 2);
     $("#out").classList.remove('hidden');
   }catch(e){
-    alert('분석 실패: ' + e.message + '\n(API_BASE 확인 및 /health 체크)');
+    console.error("[/analyse] error", e);
+    alert('분석 실패: ' + (e?.message || e) + '\n(API_BASE 및 /health 확인)');
   }finally{
     goBtn.disabled = false; 
     goBtn.textContent = '🔎 Analyse';
@@ -181,7 +194,7 @@ async function renderAgentExtras(ticker, lang, prefs){
   if (prefs.news && newsEl) newsEl.innerHTML = '';
 
   try{
-    const ag = await fetchJSON(`${API_BASE}/agent`, {
+    const ag = await fetchJSON(`${API_BASE}/agent?t=${Date.now()}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -190,7 +203,7 @@ async function renderAgentExtras(ticker, lang, prefs){
         include_news: !!prefs.news
       })
     });
-    console.log("[/agent]", ag);
+    console.log("[/agent] ok", ag);
 
     if (prefs.pred && predEl) {
       predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
@@ -209,7 +222,7 @@ async function renderAgentExtras(ticker, lang, prefs){
       newsEl.closest('section')?.classList.remove('hidden');
     }
   }catch(e){
-    console.error("agent error", e);
+    console.error("[/agent] error", e);
     if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
     if (prefs.sum  && sumEl)  sumEl.textContent = '';
     if (prefs.news && newsEl) newsEl.innerHTML  = `<li class="muted">News unavailable.</li>`;
@@ -219,26 +232,30 @@ async function renderAgentExtras(ticker, lang, prefs){
 // ========== 메인 플로우 ==========
 async function analyseWithExtras(){
   const prefs = getPrefs();
-  applySectionVisibility(prefs);      // 클릭 즉시 섹션 show/hide 반영
-  await analyse();                    // 재무 분석
+  applySectionVisibility(prefs);
+  await analyse();
 
   const t = $("#ticker").value.trim().toUpperCase();
   const lang = $("#lang").value;
 
-  if (!prefs.pred && !prefs.sum && !prefs.news) return; // 선택 없으면 추가 호출 X
-  await renderAgentExtras(t, lang, prefs);               // 선택된 항목만 렌더
+  if (!prefs.pred && !prefs.sum && !prefs.news) return;
+  await renderAgentExtras(t, lang, prefs);
 }
 
 // ========== Boot ==========
 document.addEventListener('DOMContentLoaded', () => {
-  applySectionVisibility(getPrefs()); // 초기 체크 해제 상태 반영
+  console.log("[boot] DOM ready");
+  applySectionVisibility(getPrefs());
   checkHealth();
 
-  // 오직 analyseWithExtras에만 바인딩
-  $("#go").addEventListener('click', analyseWithExtras);
+  const go = $("#go");
+  if (!go) {
+    console.error("[boot] #go not found!");
+    return;
+  }
+  go.addEventListener('click', analyseWithExtras);
   $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyseWithExtras(); });
 
-  // JSON 토글
   const toggle = $("#toggle-json");
   if (toggle) {
     toggle.addEventListener('change', (e)=>{
@@ -246,7 +263,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 체크박스 변경 시 섹션 가시성 즉시 반영
   ["#opt-pred","#opt-sum","#opt-news"].forEach(id=>{
     const el = $(id);
     if (el) el.addEventListener('change', ()=> applySectionVisibility(getPrefs()));
