@@ -9,6 +9,17 @@ from brokers import price_now
 
 app = FastAPI(title="FIN Agent + Predictions", version="1.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://chanthr.github.io",   
+        "https://chanthr.github.io/"   
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 class AnalyseIn(BaseModel):
     query: str
     language: str = "ko"
