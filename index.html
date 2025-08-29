@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>📊 LSA Tool (Frontend)</title>
+  <title>📊 LSA Tool </title>
   <meta name="description" content="Liquidity & Solvency Analysis – GitHub Pages frontend calling FastAPI backend" />
   <!-- Optional Markdown renderer for nicer narrative -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -31,8 +31,8 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>📊 LSA Tool</h1>
-    <p class="muted">GitHub Pages 정적 프론트에서 FastAPI 백엔드(API)를 호출합니다.</p>
+    <h1>📊 Liquidity & Solvency Analysis</h1>
+    <p class="muted"> powered by fiance agent v1 </p>
 
     <div class="card">
       <div class="row" style="align-items:center">
@@ -43,8 +43,8 @@
         </select>
         <button id="go">🔎 Analyse</button>
       </div>
-      <p class="muted" style="margin-top:8px">KR/JP/HK 종목은 .KS / .T / .HK 접미사를 붙여주세요.</p>
-      <p class="muted">API 상태: <span id="health">확인 중…</span></p>
+      <p class="muted" style="margin-top:8px">KR/JP/HK 종목은 .KS / .T / .HK 접미사를 붙여야 작동됩니다.</p>
+      <p class="muted">API Status: <span id="health">확인 중…</span></p>
     </div>
 
     <div id="out" class="card" style="display:none">
@@ -67,7 +67,7 @@
   </div>
 
   <script>
-    // 🔧 배포한 FastAPI 백엔드 주소로 바꿔주세요
+    // 🔧 
     const API_BASE = "https://chanthr-github-io.onrender.com"; // ← 여길 본인 Render URL로
 
     const $ = s => document.querySelector(s);
@@ -94,8 +94,8 @@
     async function analyse(){
       const t = $("#ticker").value.trim().toUpperCase();
       const lang = $("#lang").value;
-      if(!t){ alert('티커를 입력하세요.'); return; }
-      goBtn.disabled = true; goBtn.textContent = '⏳ Analyzing...';
+      if(!t){ alert('Ticker Symbol of the company.'); return; }
+      goBtn.disabled = true; goBtn.textContent = '⏳ Analysing...';
       $("#out").style.display = 'none';
       try{
         const res = await fetch(`${API_BASE}/analyse`,{
