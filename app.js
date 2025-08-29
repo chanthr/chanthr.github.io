@@ -68,6 +68,12 @@ const fmtPct = (x) => (x == null || isNaN(x))
   : (x >= 0 ? '+' : '') + (Number(x) * 100).toFixed(2) + '%';
 
 function predCard(p = {}){
+  if (p && p.error) {
+    return `<div class="ratio">
+      <div><strong>${p.symbol || '-'}</strong></div>
+      <div class="mt-6 muted">Prediction failed: ${String(p.error)}</div>
+    </div>`;
+  }
   const signal = (p.signal || 'HOLD').toUpperCase();
   const badgeClass = signal === 'BUY' ? 'BUY' : (signal === 'SELL' ? 'SELL' : 'HOLD');
   return `
@@ -98,32 +104,36 @@ function newsList(items = []){
   }).join('');
 }
 
-async function renderAgentExtras(ticker, lang, prefs={pred:true,sum:true,news:true}){
+async function renderAgentExtras(ticker, lang){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
-  if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
-  if (prefs.sum  && sumEl)  sumEl.textContent = '';
-  if (prefs.news && newsEl) newsEl.innerHTML = '';
+  if (predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
+  if (sumEl)  sumEl.textContent = '';
+  if (newsEl) newsEl.innerHTML = '';
 
   try{
     const r = await fetch(`${API_BASE}/agent`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        query: `${ticker} 유동성/건전성 + 1D 예측`,
-        language: lang,
-        include_news: !!prefs.news   // ✅ 뉴스만 서버에 전달
-      })
+      body: JSON.stringify({ query: `${ticker} 유동성/건전성 + 1D 예측`, language: lang, include_news: true })
     });
-    if(!r.ok) throw new Error('agent');
     const ag = await r.json();
+    console.log("[/agent]", ag); // 👈 디버그
 
-    if (prefs.pred && predEl) predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
-    if (prefs.sum  && sumEl)  sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
-    if (prefs.news && newsEl) newsEl.innerHTML  = newsList(ag.news);
+    if (predEl) predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
+    if (sumEl)  sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
+
+    if (newsEl) {
+      if (Array.isArray(ag.news) && ag.news.length) {
+        newsEl.innerHTML = newsList(ag.news);
+      } else {
+        newsEl.innerHTML = `<li class="muted">No recent headlines.</li>`;
+      }
+    }
   }catch(e){
-    if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
-    if (prefs.sum  && sumEl)  sumEl.textContent = '';
-    if (prefs.news && newsEl) newsEl.innerHTML  = `<li class="muted">News unavailable.</li>`;
+    console.error("agent error", e);
+    if (predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
+    if (sumEl)  sumEl.textContent = '';
+    if (newsEl) newsEl.innerHTML  = `<li class="muted">News unavailable.</li>`;
   }
 }
 
