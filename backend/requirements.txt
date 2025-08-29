@@ -1,8 +1,12 @@
 fastapi
 uvicorn[standard]
 pandas
+numpy
 yfinance
 python-dotenv
-langchain-groq
 langchain-core
 langchain
+langchain-groq
+requests
+scikit-learn        
+apscheduler         
