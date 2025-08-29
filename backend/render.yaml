@@ -1,15 +1,16 @@
 services:
   - type: web
-    name: lsa-tool-api
+    name: fin-agent
     env: python
-    region: singapore
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn api:app --host 0.0.0.0 --port $PORT"
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL
         value: llama3-8b-8192
-      - key: FRONT_ORIGINS
-        value: https://chanthr.github.io
+cronJobs:
+  - name: daily-predict
+    schedule: "0 9 * * *"   # UTC 09:00 (원하는 시간대로)
+    command: "python batch_job.py"
