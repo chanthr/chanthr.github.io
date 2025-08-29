@@ -3,6 +3,7 @@ fastapi>=0.111,<1.0
 uvicorn[standard]>=0.30,<1.0
 
 # --- Data / Finance ---
+feedparser
 pandas>=2.1,<3.0
 numpy>=1.26,<3.0
 yfinance>=0.2.40
