@@ -1,10 +1,11 @@
 # api.py
+import time, urllib.parse
+import feedparser
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import re, yfinance as yf
-
 from finance_agent import run_query, llm
 from predictor import predict_one
 
@@ -43,16 +44,53 @@ def _live_price(sym: str):
     except Exception:
         return None
 
-def _news(sym: str):
+def _news(sym: str, language: str = "en"):
+    """yfinance 뉴스 → 부족하면 Google News RSS로 보완"""
+    items = []
+
+    # 1) yfinance 시도
     try:
-        items = getattr(yf.Ticker(sym), "news", []) or []
-        return [{
-            "title": n.get("title"),
-            "link": n.get("link"),
-            "providerPublishTime": n.get("providerPublishTime") or n.get("pubTime"),
-        } for n in items[:10]]
+        arr = getattr(yf.Ticker(sym), "news", []) or []
+        for n in arr[:10]:
+            items.append({
+                "title": n.get("title"),
+                "link": n.get("link"),
+                "providerPublishTime": n.get("providerPublishTime") or n.get("pubTime"),
+            })
     except Exception:
-        return []
+        pass
+
+    # 2) 폴백: Google News RSS
+    if len(items) < 3:  # 충분치 않으면 보충
+        try:
+            # 언어/지역 파라미터
+            is_ko = str(language).lower().startswith("ko")
+            hl = "ko" if is_ko else "en-US"
+            gl = "KR" if is_ko else "US"
+
+            # 검색쿼리: 티커 + stock (한국어일땐 '주가'도 OR)
+            q = f'{sym} stock'
+            if is_ko:
+                q = f'{sym} 주가 OR {sym} 실적 OR {sym} 주식'
+            url = (
+                "https://news.google.com/rss/search?q="
+                + urllib.parse.quote_plus(q)
+                + f"&hl={hl}&gl={gl}&ceid={gl}:{hl}"
+            )
+
+            feed = feedparser.parse(url)
+            for e in feed.entries[: max(0, 10 - len(items))]:
+                link = e.get("link") or (e.get("links", [{}])[0].get("href"))
+                ts = int(time.mktime(e.published_parsed)) if getattr(e, "published_parsed", None) else None
+                items.append({
+                    "title": e.get("title"),
+                    "link": link,
+                    "providerPublishTime": ts,
+                })
+        except Exception:
+            pass
+
+    return items
 
 def _short_summary(text: str, language: str) -> str:
     if not text:
