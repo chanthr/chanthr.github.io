@@ -2,7 +2,7 @@
 const API_BASE = "https://chanthr-github-io.onrender.com";
 const $ = (s, el = document) => el.querySelector(s);
 
-// ---- 1) CSS 로드 확인 & 폴백 ----
+/* ---------- 1) CSS 폴백 (선택) ---------- */
 const FALLBACK_CSS = `
 :root{--bg:#0f1117;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#334155}
 html,body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0}
@@ -21,9 +21,7 @@ a{color:#93c5fd}.hidden{display:none}.mt-6{margin-top:6px}.mt-8{margin-top:8px}.
 .json-toggle .checkbox{display:inline-flex;gap:8px;align-items:center;font-size:14px;user-select:none}
 .watermark{position:fixed;left:0;right:0;bottom:8px;text-align:center;color:var(--muted);opacity:.35;font-size:12px;letter-spacing:.02em;user-select:none;pointer-events:none}
 `;
-
 function ensureCssLoaded(){
-  // style.css가 로드되면 :root의 --bg가 값이 있음
   const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
   if (!bg) {
     const style = document.createElement('style');
@@ -33,7 +31,7 @@ function ensureCssLoaded(){
   }
 }
 
-// ---- 2) UI helpers ----
+/* ---------- 2) UI helpers ---------- */
 function ratioCard(title, node){
   if(!node) return '';
   const raw = node.value;
@@ -47,7 +45,7 @@ function ratioCard(title, node){
     </div>`;
 }
 
-// ===== [추가] 유틸 =====
+/* ---------- 3) 에이전트 부가 섹션 ---------- */
 const fmtPct = (x) => (x == null || isNaN(x))
   ? 'N/A'
   : (x >= 0 ? '+' : '') + (Number(x) * 100).toFixed(2) + '%';
@@ -64,7 +62,6 @@ function predCard(p = {}){
       ${p.pred_close_1d != null ? `<div class="mt-6">Pred. 1D close: ${p.pred_close_1d}</div>` : ''}
     </div>`;
 }
-
 function fmtTime(ts){
   try {
     if (!ts) return '';
@@ -84,14 +81,12 @@ function newsList(items = []){
   }).join('');
 }
 
-// ===== [추가] /agent 사용(실패 시 /predict 폴백) 후, 추가 섹션 렌더 =====
 async function renderAgentExtras(ticker, lang){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
   if (predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
   if (sumEl)  sumEl.textContent = '';
   if (newsEl) newsEl.innerHTML = '';
-
-  // 1) 우선 /agent 시도
+  // 1) /agent 우선
   try{
     const r = await fetch(`${API_BASE}/agent`, {
       method:'POST',
@@ -100,14 +95,12 @@ async function renderAgentExtras(ticker, lang){
     });
     if(!r.ok) throw new Error('agent');
     const ag = await r.json();
-
     if (predEl) predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
     if (sumEl)  sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
     if (newsEl) newsEl.innerHTML  = newsList(ag.news);
     return;
-  }catch(_){ /* agent 실패 → predict 폴백 */ }
-
-  // 2) 폴백: /predict만 표시 (요약/뉴스 생략)
+  }catch(_){}
+  // 2) 폴백: /predict
   try{
     const pr = await fetch(`${API_BASE}/predict`, {
       method:'POST',
@@ -117,24 +110,15 @@ async function renderAgentExtras(ticker, lang){
     if (pr.ok) {
       const p = await pr.json();
       if (predEl) predEl.innerHTML = predCard(p);
-    } else {
-      if (predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
+    } else if (predEl) {
+      predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
     }
   }catch(e){
     if (predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
   }
 }
 
-// ===== [추가] 기존 analyse()를 그대로 호출한 뒤, 에이전트 섹션만 추가로 렌더 =====
-async function analyseWithExtras(){
-  await analyse();  // ← 네가 올린 기존 analyse() 그대로 사용
-  const t = $("#ticker").value.trim().toUpperCase();
-  const lang = $("#lang").value;
-  // 결과 블록이 보인 이후 비동기로 추가 섹션 로드
-  renderAgentExtras(t, lang);
-}
-
-// ---- 3) Healthcheck ----
+/* ---------- 4) 기존 analyse 그대로 ---------- */
 async function checkHealth(){
   try{
     const r = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
@@ -145,7 +129,6 @@ async function checkHealth(){
   }
 }
 
-// ---- 4) Analyse ----
 async function analyse(){
   const goBtn = $("#go");
   const t = $("#ticker").value.trim().toUpperCase();
@@ -195,11 +178,27 @@ async function analyse(){
   }
 }
 
-// ---- 5) Boot ----
+/* ---------- 5) 기존 유지 + 에이전트 추가 호출 ---------- */
+async function analyseWithExtras(){
+  await analyse();  // 기존 흐름 유지
+  const t = $("#ticker").value.trim().toUpperCase();
+  const lang = $("#lang").value;
+  renderAgentExtras(t, lang); // 추가 섹션 비동기 렌더
+}
+
+/* ---------- 6) Boot ---------- */
 document.addEventListener('DOMContentLoaded', () => {
+  ensureCssLoaded();              // 폴백 스타일 보강(선택)
   checkHealth();
-  $("#go").addEventListener('click', analyse);
-  $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyse(); });
+
+  // ✅ 중복 바인딩 방지: analyseWithExtras만 연결
   $("#go").addEventListener('click', analyseWithExtras);
   $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyseWithExtras(); });
+
+  const toggle = $("#toggle-json");
+  if (toggle) {
+    toggle.addEventListener('change', (e)=>{
+      $("#jsonWrap").classList.toggle('hidden', !e.target.checked);
+    });
+  }
 });
