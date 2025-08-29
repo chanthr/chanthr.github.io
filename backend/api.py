@@ -10,12 +10,13 @@ from llm_agent import run_manager
 
 app = FastAPI(title="FIN Agent + Predictions", version="1.0")
 
-# 만든 직후 추가하기 
+# ✅ CORS: 프리플라이트(OPTIONS)까지 허용
 app.add_middleware(
-  CORSMiddleware,
-  allow_origins=["https://chanthr.github.io","https://chanthr.github.io/TestPage"],
-  allow_methods=["*"],
-  allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["https://chanthr.github.io"],  # GitHub Pages (Testpage도 같은 origin)
+    allow_methods=["GET", "POST", "OPTIONS"],     # 명시적으로 열어주기
+    allow_headers=["Content-Type"],               # 프리플라이트에서 요청하는 헤더
+    max_age=3600,
 )
 
 class AnalyseIn(BaseModel):
