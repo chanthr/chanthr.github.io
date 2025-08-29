@@ -22,10 +22,18 @@
         </select>
         <button id="go">🔎 Analyse</button>
       </div>
+
+      <!-- ✅ 검색 전에 고르는 표시 옵션 -->
+      <div class="row align-center mt-8 opt-row">
+        <label class="checkbox"><input type="checkbox" id="opt-pred" checked /> <span>Prediction</span></label>
+        <label class="checkbox"><input type="checkbox" id="opt-sum"  checked /> <span>LLM Summary</span></label>
+        <label class="checkbox"><input type="checkbox" id="opt-news" checked /> <span>News</span></label>
+      </div>
+
       <p class="muted mt-8">For KR/JP/HK Stocks, must end with .KS / .T / .HK</p>
       <p class="muted">API Status: <span id="health">Checking...</span></p>
     </div>
-
+    
     <div id="out" class="card hidden">
       <h2 id="title">결과</h2>
       <div id="meta" class="muted mb-8"></div>
@@ -39,17 +47,23 @@
       <h3>📝 Narrative</h3>
       <div id="narr" class="muted"></div>
 
-      <!-- 🔮 1일 예측 -->
-      <h3>🔮 Prediction (1-Day)</h3>
-      <div id="pred" class="grid grid-3"></div>
+      <!-- 🔮 Prediction 섹션 (토글용 래퍼) -->
+      <section id="pred-section">
+        <h3>🔮 Prediction (1-Day)</h3>
+        <div id="pred" class="grid grid-3"></div>
+      </section>
 
-      <!-- 🧠 LLM 한줄 요약 -->
-      <h3>🧠 LLM Summary</h3>
-      <div id="sum" class="summary muted"></div>
+      <!-- 🧠 LLM Summary 섹션 (토글용 래퍼) -->
+      <section id="sum-section">
+        <h3>🧠 LLM Summary</h3>
+        <div id="sum" class="summary muted"></div>
+      </section>
 
-      <!-- 🗞 뉴스 -->
-      <h3>🗞 News</h3>
-      <ul id="news" class="news-list"></ul>
+      <!-- 🗞 News 섹션 (토글용 래퍼) -->
+      <section id="news-section">
+        <h3>🗞 News</h3>
+        <ul id="news" class="news-list"></ul>
+      </section>
       
       <div class="json-toggle mt-12">
         <label class="checkbox">
