@@ -154,16 +154,22 @@ function applySectionVisibility(p){
 }
 
 // ========== 유틸리티 ==========
-async function fetchJSON(url, opts={}, timeoutMs=15000){
-  const ctrl = new AbortController();
-  const t = setTimeout(()=>ctrl.abort(), timeoutMs);
-  try{
-    const res = await fetch(url, {cache:"no-store", mode:"cors", signal:ctrl.signal, ...opts});
-    clearTimeout(t);
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+async function fetchJSON(url, opts = {}, timeoutMs = 9000) {
+  // 외부에서 전달한 AbortSignal이 있으면 그걸 우선 사용
+  const externalSignal = opts.signal;
+  const ctrl = externalSignal || new AbortController();
+  const signal = ctrl.signal;
+
+  // 외부 신호가 없을 때만 내부 타임아웃으로 abort
+  const timer = externalSignal ? null : setTimeout(() => ctrl.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, { cache: "no-store", mode: "cors", ...opts, signal });
+    if (timer) clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
-  }catch(e){
-    clearTimeout(t);
+  } catch (e) {
+    if (timer) clearTimeout(timer);
     throw e;
   }
 }
