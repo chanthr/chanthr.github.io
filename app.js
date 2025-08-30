@@ -244,15 +244,41 @@ async function analyse(){
 }
 
 // ========== 에이전트 섹션 (/agent) ==========
-// --- 에이전트 섹션 (/agent) ---
+let _agentCtrl = null;  // 직전 요청 취소용 컨트롤러
+
+function renderNewsAnalysis(na, lang) {
+  // 서버가 돌려주는 분석 오브젝트를 카드로 표시
+  // na.overall: {score, label, pos, neg, neu, impact_score, top_keywords[]}
+  const o = na?.overall || {};
+  const label = (o.label || 'mixed').toUpperCase();
+  const kw = (o.top_keywords || []).slice(0, 10).join(', ') || (lang==='ko'?'키워드 없음':'No keywords');
+  const pos = o.pos ?? 0, neg = o.neg ?? 0, neu = o.neu ?? 0;
+
+  return `
+    <div class="ratio">
+      <div><strong>${lang==='ko'?'언론 톤 요약':'Media Sentiment'}</strong>
+        <span class="badge ${label==='BULLISH'?'BUY':label==='BEARISH'?'SELL':'HOLD'}">${label}</span>
+      </div>
+      <div class="mt-6">${lang==='ko'?'점수':'Score'}: ${o.score ?? 0}  •  Impact: ${o.impact_score ?? 0}</div>
+      <div class="mt-6">${lang==='ko'?'기사 분포':'Articles'}: +${pos} / 0${neu} / -${neg}</div>
+      <div class="mt-6">${lang==='ko'?'핵심 키워드':'Top keywords'}: ${kw}</div>
+      ${na.note ? `<div class="mt-6 muted">${na.note}</div>` : ''}
+    </div>
+  `;
+}
+
 async function renderAgentExtras(ticker, lang, prefs){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
   if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
   if (prefs.sum  && sumEl)  sumEl.textContent = '';
   if (prefs.news && newsEl) newsEl.innerHTML = '';
 
+  // 직전 요청 취소(연타/옵션 변경 시 AbortError 방지)
+  if (_agentCtrl) _agentCtrl.abort();
+  _agentCtrl = new AbortController();
+
   try{
-    // ⬇️ 타임아웃을 50000ms로 확장
+    // ⬇️ /agent는 계산이 길 수 있으므로 타임아웃 25초
     const ag = await fetchJSON(`${API_BASE}/agent?t=${Date.now()}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -260,8 +286,9 @@ async function renderAgentExtras(ticker, lang, prefs){
         query: `${ticker} 유동성/건전성 + 1D 예측`,
         language: lang,
         include_news: !!prefs.news
-      })
-    }, 50000);
+      }),
+      signal: _agentCtrl.signal
+    }, 25000);
     console.log("[/agent] ok", ag);
 
     if (prefs.pred && predEl) {
@@ -273,45 +300,42 @@ async function renderAgentExtras(ticker, lang, prefs){
       sumEl.closest('section')?.classList.remove('hidden');
     }
 
-    // --- News / Media analysis (분석 우선, 없으면 헤드라인로 폴백)
+    // --- 분석 우선 렌더: 객체(overall 포함) → 분석카드, 배열 → 헤드라인
     if (prefs.news && newsEl) {
       try {
-        const na =
-          ag.news_analysis ||                // 서버가 별도 키로 줄 때
-          ((!Array.isArray(ag.news) && ag.news && ag.news.overall) ? ag.news : null); // news를 분석오브젝트로 반환할 때
+        let na = null;
+        if (ag.news_analysis && ag.news_analysis.overall) {
+          na = ag.news_analysis;
+        } else if (!Array.isArray(ag.news) && ag.news && ag.news.overall) {
+          na = ag.news;            // 서버가 분석을 news에 넣어 보낼 때
+        }
 
-        if (na && typeof renderNewsAnalysis === 'function') {
+        if (na) {
           newsEl.innerHTML = renderNewsAnalysis(na, lang);
         } else if (Array.isArray(ag.news) && ag.news.length) {
-          newsEl.innerHTML = newsList(ag.news);
+          newsEl.innerHTML = newsList(ag.news); // 구형(헤드라인) 포맷도 지원
         } else {
-          newsEl.innerHTML = `<div class="muted">No media analysis available.</div>`;
+          newsEl.innerHTML = `<div class="muted">${lang==='ko'?'분석 없음':'No media analysis available.'}</div>`;
         }
       } catch (e) {
         console.error('render news error', e);
-        newsEl.innerHTML = `<div class="muted">Media analysis unavailable.</div>`;
+        newsEl.innerHTML = `<div class="muted">${lang==='ko'?'분석 렌더 실패':'Media analysis unavailable.'}</div>`;
       }
       newsEl.closest('section')?.classList.remove('hidden');
     }
-  }catch(e){
-    console.error("[/agent] error", e);
-    if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
-    if (prefs.sum  && sumEl)  sumEl.textContent = '';
-    if (prefs.news && newsEl) newsEl.innerHTML  = `<li class="muted">News unavailable.</li>`;
-  }
-}
 
-      } catch (e) {
-        console.error('render news error', e);
-        newsEl.innerHTML = `<div class="muted">Media analysis unavailable.</div>`;
-      }
-      newsEl.closest('section')?.classList.remove('hidden');
-    }
   }catch(e){
-    console.error("[/agent] error", e);
+    // Abort도 사용자에겐 조용히 처리
+    if (e?.name === 'AbortError') {
+      console.warn('[/agent] aborted');
+    } else {
+      console.error("[/agent] error", e);
+    }
     if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
     if (prefs.sum  && sumEl)  sumEl.textContent = '';
     if (prefs.news && newsEl) newsEl.innerHTML  = `<li class="muted">News unavailable.</li>`;
+  } finally {
+    _agentCtrl = null;
   }
 }
 
