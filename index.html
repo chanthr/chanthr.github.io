@@ -25,6 +25,7 @@
 
       <!-- 검색 전에 고르는 옵션 (기본 해제) -->
       <div class="row align-center mt-8 opt-row">
+        <label class="checkbox"><input type="checkbox" id="opt-narr" /> <span>Narrative</span></label>
         <label class="checkbox"><input type="checkbox" id="opt-pred" /> <span>Predict</span></label>
         <label class="checkbox"><input type="checkbox" id="opt-sum" /> <span>Analyst by AI</span></label>
         <label class="checkbox"><input type="checkbox" id="opt-news" /> <span>News</span></label>
@@ -45,8 +46,11 @@
       <h3>🛡️ Solvency</h3>
       <div id="sol" class="grid grid-3"></div>
 
-      <h3>📝 Narrative</h3>
-      <div id="narr" class="muted"></div>
+      <!-- 📝 Narrative -->
+      <section id="narr-section" class="hidden">
+        <h3>📝 Narrative</h3>
+        <div id="narr" class="muted"></div>
+      </section>
 
       <!-- 🔮 Prediction -->
       <section id="pred-section" class="hidden">
