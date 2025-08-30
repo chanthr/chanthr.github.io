@@ -456,7 +456,7 @@ def run_manager(query: str, language: str = "ko", include_news: bool = True) -> 
 
     # 뉴스
     try:
-        news = _news_enriched(sym, language, company_name=(ana.get("core") or {}).get("company"), k=200) if include_news else []
+        news = _news_enriched(sym, language, company_name=(ana.get("core") or {}).get("company"), k=40) if include_news else []
     except Exception:
         news = []
 
@@ -478,8 +478,8 @@ def run_manager(query: str, language: str = "ko", include_news: bool = True) -> 
         "price": ana["core"]["price"],
         "analysis": ana,
         "prediction": pred,
-        "news": news,
-        "news_analysis": news_analysis,      # << 반드시 포함
+        # "news": news,  # Removed for now, because not using anymore.
+        "news_analysis": news_analysis,   # ✅ 추가: 미디어 톤/키워드/임팩트
         "summary": text,
         "meta": {
             "llm_provider": _LLM_PROVIDER,
