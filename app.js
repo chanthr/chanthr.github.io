@@ -354,6 +354,67 @@ async function analyseWithExtras(){
   await renderAgentExtras(t, lang, prefs);
 }
 
+// ====== One-click site reset (cookies/localStorage/cache/SW) ======
+async function resetSiteData() {
+  if (!confirm('Clear this site’s local data (cookies, localStorage, caches, service workers) and reload?')) return;
+
+  const link = document.getElementById('reset-site');
+  try { if (link) { link.textContent = '🧹 Cleaning…'; link.style.pointerEvents = 'none'; } } catch {}
+
+  try {
+    // 1) Web Storage
+    try { localStorage.clear(); } catch {}
+    try { sessionStorage.clear(); } catch {}
+
+    // 2) Cookies (HttpOnly 제외)
+    try {
+      const paths = ['/', location.pathname.split('/').slice(0, -1).join('/') || '/'];
+      const domains = [location.hostname, location.hostname.replace(/^www\./, '')]
+        .filter((v,i,arr)=>v && arr.indexOf(v)===i);
+
+      document.cookie.split(';').forEach(c => {
+        const name = c.split('=')[0].trim();
+        paths.forEach(p => {
+          // 기본
+          document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}`;
+          // 도메인 조합
+          domains.forEach(d => {
+            document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}; Domain=${d}`;
+            document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}; Domain=.${d}`;
+          });
+        });
+      });
+    } catch {}
+
+    // 3) Cache Storage
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch {}
+
+    // 4) Service Workers
+    try {
+      if (navigator.serviceWorker?.getRegistrations) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch {}
+
+    // 5) 네트워크 캐시 무력화는 하드 리로드로 처리
+    if (link) link.textContent = '✅ Done. Reloading…';
+  } finally {
+    setTimeout(()=>location.reload(), 400);
+  }
+}
+
+// ====== Boot에 클릭 핸들러 추가 ======
+document.addEventListener('DOMContentLoaded', () => {
+  const reset = document.getElementById('reset-site');
+  if (reset) reset.addEventListener('click', (e) => { e.preventDefault(); resetSiteData(); });
+});
+
 // ---------- Boot ----------
 document.addEventListener('DOMContentLoaded', () => {
   console.log("[boot] DOM ready");
