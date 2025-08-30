@@ -67,8 +67,8 @@ function newsList(items = []){
   }).join('');
 }
 
-// News Render Added
-function renderNewsAnalysis(na, lang = 'ko') { 
+// News  Added
+function NewsAnalysis(na, lang = 'ko') { 
   if (!na || !na.overall) return `<div class="muted">No media analysis.</div>`;
   const o = na.overall || {};
   const lbl = String(o.label || 'mixed');
@@ -251,6 +251,7 @@ async function renderAgentExtras(ticker, lang, prefs){
   if (prefs.news && newsEl) newsEl.innerHTML = '';
 
   try{
+    console.time('/agent');
     const ag = await fetchJSON(`${API_BASE}/agent?t=${Date.now()}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -260,6 +261,8 @@ async function renderAgentExtras(ticker, lang, prefs){
         include_news: !!prefs.news
       })
     });
+    }, 30000); // ← 30초로 늘림
+    console.timeEnd('/agent');
     console.log("[/agent] ok", ag);
 
     if (prefs.pred && predEl) {
@@ -272,13 +275,25 @@ async function renderAgentExtras(ticker, lang, prefs){
     }
     
     if (prefs.news && newsEl) {
-      const na = ag.news_analysis || (ag.news && ag.news.overall ? ag.news : null);
-      if (na) {
-        newsEl.innerHTML = renderNewsAnalysis(na, lang);
-      } else {
-        newsEl.innerHTML = `<div class="muted">No media analysis available.</div>`;
+      try {
+        // 서버가 news_analysis를 주면 그걸 우선 사용
+        const na =
+          ag.news_analysis ||
+          ((!Array.isArray(ag.news) && ag.news && ag.news.overall) ? ag.news : null);
+
+        if (na && typeof renderNewsAnalysis === 'function') {
+          newsEl.innerHTML = renderNewsAnalysis(na, lang);
+        } else if (Array.isArray(ag.news) && ag.news.length) {
+            // 폴백: 헤드라인 리스트만 왔을 때
+          newsEl.innerHTML = newsList(ag.news);
+        } else {
+          newsEl.innerHTML = `<div class="muted">No media analysis available.</div>`;
+        }
+      } catch (e) {
+        console.error('render news error', e);
+        newsEl.innerHTML = `<div class="muted">Media analysis unavailable.</div>`;
       }
-        newsEl.closest('section')?.classList.remove('hidden');
+      newsEl.closest('section')?.classList.remove('hidden');
     }
   }catch(e){
     console.error("[/agent] error", e);
