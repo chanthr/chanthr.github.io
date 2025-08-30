@@ -11,7 +11,7 @@ window.onunhandledrejection = (e) => {
   console.error("[unhandledrejection]", e?.reason || e);
 };
 
-// ---------- Small utils ----------
+// ---------- Utils ----------
 const escapeHTML = (s='') => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 // ---------- UI helpers ----------
@@ -51,7 +51,7 @@ function predCard(p = {}){
     </div>`;
 }
 
-// --- Analysis card for media sentiment (NO article list) ---
+// --- Media analysis card (no article list) ---
 function renderNewsAnalysis(na, lang = 'ko') { 
   if (!na || !na.overall) return `<div class="muted">No media analysis.</div>`;
   const o = na.overall || {};
@@ -176,7 +176,6 @@ async function checkHealth(){
   try{
     const h = await fetchJSON(`${API_BASE}/health?t=${Date.now()}`);
     if (apiEl) apiEl.textContent = h?.status === "ok" ? "OK" : "Error";
-
     const on = (x)=> x && x.ready && x.provider ? `${x.provider.toUpperCase()} ON` : `Fallback (${x?.reason || "no LLM"})`;
     if (llmEl) llmEl.textContent = `Fin: ${on(h?.finance_llm)}  •  Agent: ${on(h?.agent_llm)}`;
     console.log("LLM Status:", h?.finance_llm, h?.agent_llm);
@@ -248,12 +247,12 @@ let _agentCtrl = null;
 async function renderAgentExtras(ticker, lang, prefs){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
 
-  // Show sections so progress is visible
+  // show sections for progress visibility
   if (prefs.pred) $("#pred-section")?.classList.remove('hidden');
   if (prefs.sum)  $("#sum-section") ?.classList.remove('hidden');
   if (prefs.news) $("#news-section")?.classList.remove('hidden');
 
-  // Progress bars
+  // progress bars
   let predProg = null, sumProg = null, newsProg = null;
   if (prefs.pred && predEl) predProg = startProgressIn(predEl);
   if (prefs.sum  && sumEl)  sumProg  = startProgressIn(sumEl);
@@ -281,18 +280,18 @@ async function renderAgentExtras(ticker, lang, prefs){
       predProg.finish(predCard(ag?.prediction || { symbol: ticker }));
     }
 
-    // 🧠 Analyst summary (do NOT nest .summary again)
+    // 🧠 Analyst summary (no nested .summary)
     if (prefs.sum && sumEl && sumProg)  {
       const txt = (ag?.summary || '').trim()
         || (lang === 'ko' ? '요약 없음' : 'No summary');
       sumProg.finish(escapeHTML(txt));
     }
 
-    // 🗞 News / Analysis ONLY (no headline fallback)
+    // 🗞 News / Analysis ONLY
     if (prefs.news && newsEl && newsProg) {
       let html = `<div class="muted">${lang==='ko'?'분석 없음':'No media analysis available.'}</div>`;
       let na = (ag && ag.news_analysis && ag.news_analysis.overall) ? ag.news_analysis : null;
-      if (!na && ag && ag.news && !Array.isArray(ag.news) && ag.news.overall) na = ag.news;
+      if (!na && ag && ag.news && !Array.isArray(ag.news) && ag.news.overall) na = ag.news; // backward compat
       if (na) html = renderNewsAnalysis(na, lang);
       newsProg.finish(html);
     }
@@ -307,7 +306,7 @@ async function renderAgentExtras(ticker, lang, prefs){
   }
 }
 
-// ---------- Patch Notes (floating button + modal) ----------
+// ---------- Patch Notes ----------
 function mountPatchNotes(){
   const notes = (window.PATCH_NOTES || []);
   if (!Array.isArray(notes) || !notes.length) return;
