@@ -7,18 +7,6 @@
   <meta name="description" content="Liquidity & Solvency Analysis - Powered by fin agent v1" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="https://chanthr.github.io/styles.css?v=1" />
-  <style>
-    /* minimal progress styling (if not present in styles.css) */
-    .loading, .loading-item { padding: 8px 0; }
-    .progress{ width:100%; height:6px; background:#eee; border-radius:999px; overflow:hidden; }
-    .progress .bar{ height:100%; width:0%; background:#6aa9ff; transition: width .25s ease; }
-    .pct{ display:inline-block; margin-top:6px; font-size:.9rem; color:#666; }
-    .chip{ display:inline-block; padding:2px 8px; border-radius:999px; background:#f2f2f2; margin:2px 4px 0 0; font-size:.85rem; }
-    .media-item time{ color:#888; }
-    .badge.BUY{ background:#14a44d; color:#fff; }
-    .badge.SELL{ background:#dc4c64; color:#fff; }
-    .badge.HOLD{ background:#6c757d; color:#fff; }
-  </style>
 </head>
 <body>
   <div class="wrap">
@@ -43,8 +31,8 @@
       </div>
 
       <p class="muted mt-8">For KR/JP/HK Stocks, must end with .KS / .T / .HK</p>
-      <p class="muted mt-8">Please use responsibly. It may take few minutes for API to be activated.</p>
-      <p class="muted">API: <span id="health">Checking…</span> • LLM: <span id="llm">Checking…</span></p>
+      <p class="muted mt-8">It may take few minutes for API to be activated.</p>
+      <p class="muted">API: <span id="health">Checking…</span> • <span id="llm">Checking…</span></p>
     </div>
 
     <div id="out" class="card hidden">
@@ -69,16 +57,16 @@
         <div id="pred" class="grid grid-3"></div>
       </section>
 
-      <!-- 🧠 LLM Summary -->
+      <!-- 🧠 LLM Summary (single green border) -->
       <section id="sum-section" class="hidden">
         <h3>🧠 Analyst Summary (powered by AI)</h3>
         <div id="sum" class="summary muted"></div>
       </section>
 
-      <!-- 🗞 News -->
+      <!-- 🗞 News (analysis card only) -->
       <section id="news-section" class="hidden">
         <h3>🗞 Current Trends</h3>
-        <ul id="news" class="news-list"></ul>
+        <div id="news"></div>
       </section>
 
       <div class="json-toggle mt-12">
@@ -95,23 +83,23 @@
 
   <footer class="watermark">© 2025 Powered by @chnxthr</footer>
 
-  <!-- Optional: Patch Notes -->
+  <!-- Patch Notes data -->
   <script>
     window.PATCH_NOTES = [
       {
-        version: "v1.5.0",
+        version: "v1.6.0",
         date: "2025-08-31",
-        title: "Media sentiment & impact scoring",
+        title: "Media sentiment only • single-border summary • patch widget",
         changes: [
-          { kind: "added", text: "Added media sentiment analysis with weighted impact & top keywords." },
-          { kind: "changed", text: "News section now shows analysis card by default." }
+          { kind: "added",   text: "Animated Patch Notes (bottom-right), CSS moved to styles.css." },
+          { kind: "changed", text: "News section shows analysis only (no headline list)." },
+          { kind: "fixed",   text: "Removed duplicate green border on Analyst Summary." }
         ]
       }
     ];
   </script>
-  <script src="https://chanthr.github.io/assets/patch-notes.js?v=1" defer></script>
 
-  <!-- App JS -->
-  <script src="https://chanthr.github.io/app.js?v=2" defer></script>
+  <!-- App logic -->
+  <script src="https://chanthr.github.io/app.js?v=4" defer></script>
 </body>
 </html>
