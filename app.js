@@ -11,7 +11,7 @@ window.onunhandledrejection = (e) => {
   console.error("[unhandledrejection]", e.reason || e);
 };
 
-// ========== UI helpers ==========
+// ========== Helper Tools for UI + FUC ==========
 function ratioCard(title, node){
   if(!node) return '';
   const raw = node.value;
@@ -65,6 +65,63 @@ function newsList(items = []){
     const when = fmtTime(n.providerPublishTime || n.pubTime || n.time || n.pub_time);
     return `<li><a href="${link}" target="_blank" rel="noopener">${t}</a>${when ? ` <time>· ${when}</time>`:''}</li>`;
   }).join('');
+}
+
+// News Render Added
+function renderNewsAnalysis(na, lang = 'ko') { 
+  if (!na || !na.overall) return `<div class="muted">No media analysis.</div>`;
+  const o = na.overall || {};
+  const lbl = String(o.label || 'mixed');
+  const lblText = (lang.startsWith('ko'))
+    ? (lbl === 'bullish' ? '긍정적' : lbl === 'bearish' ? '부정적' : '혼재')
+    : lbl;
+
+  const score = (o.score ?? 0);
+  const impact = (o.impact_score ?? 0);
+  const pos = o.pos ?? 0, neg = o.neg ?? 0, neu = o.neu ?? 0;
+  const kws = (o.top_keywords || []).slice(0, 10);
+
+  const badgeCls = lbl === 'bullish' ? 'BUY' : (lbl === 'bearish' ? 'SELL' : 'HOLD');
+
+  // 상위 5개 항목만 샘플로 노출 (제목 + 감성 + 태그)
+  const items = (na.items || []).slice(0, 5).map(it => {
+    const s = it.sentiment ?? 0;
+    const emoji = s > 0.25 ? '📈' : (s < -0.25 ? '📉' : '➖');
+    const tags = (it.impact_tags || []).map(t => `<span class="chip">${t}</span>`).join(' ');
+    const safeTitle = String(it.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const when = it.ts ? new Date(it.ts * 1000).toLocaleString() : '';
+    return `
+      <li class="media-item">
+        <a href="${it.link || '#'}" target="_blank" rel="noopener">${emoji} ${safeTitle}</a>
+        ${when ? `<time> · ${when}</time>` : ''}
+        ${tags ? `<div class="mt-4">${tags}</div>` : ''}
+      </li>`;
+  }).join('');
+
+  return `
+    <div class="media-wrap">
+      <div class="row align-center">
+        <strong>Media sentiment</strong>
+        <span class="badge ${badgeCls}" style="margin-left:8px;">${lblText}</span>
+        <span class="muted" style="margin-left:8px;">score ${score >= 0 ? '+' : ''}${score.toFixed(3)}</span>
+        <span class="muted" style="margin-left:8px;">impact ${impact >= 0 ? '+' : ''}${impact.toFixed(3)}</span>
+      </div>
+
+      <div class="mt-8 muted">
+        ${lang.startsWith('ko') ? '기사 분포' : 'Articles'}:
+        <span class="pos">+${pos}</span> /
+        <span class="neg">-${neg}</span> /
+        <span class="neu">~${neu}</span>
+      </div>
+
+      ${kws.length ? `<div class="mt-8">
+        ${(lang.startsWith('ko') ? '핵심 키워드' : 'Top keywords')}:
+        ${kws.map(k=>`<span class="chip">${k}</span>`).join(' ')}
+      </div>` : ''}
+
+      ${items ? `<ul class="news-list mt-12">${items}</ul>` : `<div class="muted mt-8">No representative items.</div>`}
+    </div>
+  `;
 }
 
 // ========== 옵션 읽기 & 섹션 표시 ==========
@@ -213,13 +270,15 @@ async function renderAgentExtras(ticker, lang, prefs){
       sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
       sumEl.closest('section')?.classList.remove('hidden');
     }
+    
     if (prefs.news && newsEl) {
-      if (Array.isArray(ag.news) && ag.news.length) {
-        newsEl.innerHTML = newsList(ag.news);
+      const na = ag.news_analysis || (ag.news && ag.news.overall ? ag.news : null);
+      if (na) {
+        newsEl.innerHTML = renderNewsAnalysis(na, lang);
       } else {
-        newsEl.innerHTML = `<li class="muted">No recent headlines.</li>`;
+        newsEl.innerHTML = `<div class="muted">No media analysis available.</div>`;
       }
-      newsEl.closest('section')?.classList.remove('hidden');
+        newsEl.closest('section')?.classList.remove('hidden');
     }
   }catch(e){
     console.error("[/agent] error", e);
