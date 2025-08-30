@@ -7,6 +7,18 @@
   <meta name="description" content="Liquidity & Solvency Analysis - Powered by fin agent v1" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="https://chanthr.github.io/styles.css?v=1" />
+  <style>
+    /* minimal progress styling (if not present in styles.css) */
+    .loading, .loading-item { padding: 8px 0; }
+    .progress{ width:100%; height:6px; background:#eee; border-radius:999px; overflow:hidden; }
+    .progress .bar{ height:100%; width:0%; background:#6aa9ff; transition: width .25s ease; }
+    .pct{ display:inline-block; margin-top:6px; font-size:.9rem; color:#666; }
+    .chip{ display:inline-block; padding:2px 8px; border-radius:999px; background:#f2f2f2; margin:2px 4px 0 0; font-size:.85rem; }
+    .media-item time{ color:#888; }
+    .badge.BUY{ background:#14a44d; color:#fff; }
+    .badge.SELL{ background:#dc4c64; color:#fff; }
+    .badge.HOLD{ background:#6c757d; color:#fff; }
+  </style>
 </head>
 <body>
   <div class="wrap">
@@ -23,7 +35,6 @@
         <button id="go" type="button">🔎 Analyse</button>
       </div>
 
-      <!-- 검색 전에 고르는 옵션 (기본 해제) -->
       <div class="row align-center mt-8 opt-row">
         <label class="checkbox"><input type="checkbox" id="opt-narr" /> <span>Narrative</span></label>
         <label class="checkbox"><input type="checkbox" id="opt-pred" /> <span>Predict</span></label>
@@ -83,7 +94,8 @@
   </div>
 
   <footer class="watermark">© 2025 Powered by @chnxthr</footer>
-  <!-- Patch Notes data (inline) -->
+
+  <!-- Optional: Patch Notes -->
   <script>
     window.PATCH_NOTES = [
       {
@@ -97,10 +109,9 @@
       }
     ];
   </script>
-  <!-- Widget -->
   <script src="https://chanthr.github.io/assets/patch-notes.js?v=1" defer></script>
 
-  <!-- 앱 스크립트 -->
-  <script src="https://chanthr.github.io/app.js?v=1" defer></script>
+  <!-- App JS -->
+  <script src="https://chanthr.github.io/app.js?v=2" defer></script>
 </body>
 </html>
