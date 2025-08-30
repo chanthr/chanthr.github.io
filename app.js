@@ -85,7 +85,7 @@ function renderNewsAnalysis(na, lang = 'ko') {
       </div>
       ${kws.length ? `<div class="mt-8">
         ${(lang.startsWith('ko') ? '핵심 키워드' : 'Top keywords')}:
-        ${kws.map(k=>`<span class="chip">${escapeHTML(k)}</span>`).join(' ')}
+        ${kws.map(k => escapeHTML(k)).join(', ')}
       </div>` : ''}
       ${na.note ? `<div class="mt-8 muted">${escapeHTML(na.note)}</div>` : ''}
     </div>
