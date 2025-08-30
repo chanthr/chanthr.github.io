@@ -1,0 +1,65 @@
+/* ===== Patch Notes ===== */
+.pn :where(*) { box-sizing: border-box; }
+
+:root{
+  --pn-bg:#0b1220; --pn-card:rgba(24,33,55,.9); --pn-text:#e6edf7; --pn-muted:#9fb2cc;
+  --pn-accent:#7c3aed; --pn-accent-2:#06b6d4; --pn-ring:rgba(124,58,237,.6);
+  --pn-good:#16a34a; --pn-changed:#0ea5e9; --pn-fixed:#f59e0b; --pn-bad:#ef4444;
+  --pn-shadow:0 20px 60px rgba(0,0,0,.45); --pn-radius:18px;
+}
+@media (prefers-color-scheme: light){
+  :root{ --pn-bg:#f7f8fb; --pn-card:rgba(255,255,255,.9); --pn-text:#0f172a; --pn-muted:#5b708f;
+         --pn-shadow:0 20px 60px rgba(0,0,0,.12); }
+}
+
+/* Floating button */
+.pn-fab{position:fixed;right:20px;bottom:20px;z-index:60;display:inline-flex;align-items:center;gap:10px;
+  padding:10px 14px;border:0;border-radius:999px;color:#fff;background:linear-gradient(135deg,var(--pn-accent),var(--pn-accent-2));
+  font:600 14px/1.1 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;cursor:pointer;box-shadow:var(--pn-shadow);}
+.pn-fab:focus-visible{outline:3px solid var(--pn-ring);outline-offset:2px;}
+.pn-fab .pn-fab-text{letter-spacing:.2px}
+.pn-dot{width:10px;height:10px;border-radius:999px;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.25);display:inline-block;}
+
+/* Modal */
+.pn-modal{position:fixed;inset:0;z-index:70;display:none;}
+.pn-modal.pn-open{display:block;}
+.pn-overlay{position:absolute;inset:0;background:rgba(6,11,20,.6);backdrop-filter:blur(4px);animation:pn-fade .18s ease-out forwards;}
+.pn-card{position:relative;margin:min(8vw,56px) auto;max-width:760px;background:var(--pn-card);color:var(--pn-text);
+  border-radius:var(--pn-radius);box-shadow:var(--pn-shadow);border:1px solid rgba(124,58,237,.25);overflow:clip;animation:pn-pop .22s ease-out forwards;}
+
+/* Header / Footer */
+.pn-header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;}
+.pn-title-wrap{display:flex;align-items:center;gap:10px;}
+.pn-header h2{margin:0;font:700 18px/1.2 Inter,ui-sans-serif;}
+.pn-version{color:var(--pn-muted);font:600 12px/1 Inter;padding:4px 8px;border-radius:999px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25)}
+.pn-icon{background:transparent;border:0;color:var(--pn-muted);font:700 18px/1 Inter;cursor:pointer;}
+.pn-icon:hover{color:var(--pn-text);}
+.pn-footer{display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.08));}
+.pn-btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(148,163,184,.25);background:transparent;color:var(--pn-text);font:600 13px/1 Inter;cursor:pointer;}
+.pn-btn:hover{background:rgba(255,255,255,.06)}
+.pn-primary{background:linear-gradient(135deg,var(--pn-accent),var(--pn-accent-2));border:0;color:#fff;}
+.pn-primary:hover{filter:brightness(1.05)}
+
+/* Items */
+.pn-list{padding:8px 18px 18px;}
+.pn-item{--delay:0ms;display:grid;grid-template-columns:28px 1fr;gap:12px;padding:14px 0;position:relative;
+  opacity:0;transform:translateY(6px);animation:pn-rise .38s ease both;animation-delay:var(--delay);}
+.pn-tl{position:relative;}
+.pn-dot2{width:10px;height:10px;border-radius:999px;background:var(--pn-accent-2);margin-top:6px;}
+.pn-line{position:absolute;top:24px;bottom:-14px;left:4px;width:2px;background:linear-gradient(to bottom,rgba(124,58,237,.3),transparent);}
+.pn-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.pn-date{color:var(--pn-muted);font:600 12px/1 Inter;}
+.pn-badges{display:flex;gap:6px;flex-wrap:wrap;}
+.pn-badge{font:700 11px/1 Inter;padding:4px 8px;border-radius:999px;letter-spacing:.3px;color:#fff;}
+.pn-badge.added{background:linear-gradient(135deg,#16a34a,#22c55e);}
+.pn-badge.changed{background:linear-gradient(135deg,#0ea5e9,#38bdf8);}
+.pn-badge.fixed{background:linear-gradient(135deg,#f59e0b,#fbbf24);}
+.pn-badge.removed{background:linear-gradient(135deg,#ef4444,#f43f5e);}
+.pn-title{margin:0 0 6px;font:700 16px/1.25 Inter;}
+.pn-desc{margin:0;color:var(--pn-muted);font:500 13px/1.5 Inter;}
+
+@keyframes pn-fade{from{opacity:0}to{opacity:1}}
+@keyframes pn-pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes pn-rise{to{opacity:1;transform:none}}
+
+body.pn-lock{overflow:hidden;}
