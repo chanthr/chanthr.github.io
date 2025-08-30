@@ -126,6 +126,7 @@ function NewsAnalysis(na, lang = 'ko') {
 
 // ========== 옵션 읽기 & 섹션 표시 ==========
 function getPrefs(){
+  const narr = $("#opt-narr")?.checked ?? false; 
   const pred = $("#opt-pred")?.checked ?? false;
   const sum  = $("#opt-sum")?.checked  ?? false;
   const news = $("#opt-news")?.checked ?? false;
@@ -144,13 +145,59 @@ function findWrap(childSel, preferredIdSel){
 }
 
 function applySectionVisibility(p){
-  const predWrap = findWrap('#pred', '#pred-section');
-  const sumWrap  = findWrap('#sum',  '#sum-section');
-  const newsWrap = findWrap('#news', '#news-section');
+  const S = {
+    narr: $("#narr-section"), 
+    pred: $("#pred-section"),
+    sum:  $("#sum-section"),
+    news: $("#news-section"),
+  };
+  if (S.narr) S.narr.classList.toggle('hidden', !p.narr);
+  if (S.pred) S.pred.classList.toggle('hidden', !p.pred);
+  if (S.sum)  S.sum.classList.toggle('hidden',  !p.sum);
+  if (S.news) S.news.classList.toggle('hidden', !p.news);
+}
 
-  if (predWrap) predWrap.classList.toggle('hidden', !p.pred);
-  if (sumWrap)  sumWrap.classList.toggle('hidden',  !p.sum);
-  if (newsWrap) newsWrap.classList.toggle('hidden', !p.news);
+// ---------- Loading progress (fake but smooth) ----------
+function startProgressIn(el) {
+  // el can be a <div> or a <ul>. We inject valid markup for both cases.
+  const isUL = el && el.tagName === 'UL';
+  const wrap = isUL
+    ? document.createElement('li')
+    : document.createElement('div');
+  wrap.className = isUL ? 'loading-item' : 'loading';
+
+  wrap.innerHTML = `
+    <div class="progress"><div class="bar" style="width:0%"></div></div>
+    <span class="pct">Loading 0%</span>
+  `;
+  el.innerHTML = '';
+  el.appendChild(wrap);
+
+  const bar = wrap.querySelector('.bar');
+  const pctEl = wrap.querySelector('.pct');
+  let pct = 0;
+  const timer = setInterval(() => {
+    // accelerate to ~90% then wait for finish()
+    pct += Math.random() * 12 + 6;
+    if (pct > 90) pct = 90;
+    bar.style.width = pct.toFixed(0) + '%';
+    pctEl.textContent = `Loading ${pct.toFixed(0)}%`;
+  }, 220);
+
+  return {
+    finish(text) {
+      clearInterval(timer);
+      pct = 100;
+      bar.style.width = '100%';
+      pctEl.textContent = 'Loading 100%';
+      // slight delay so users see it hit 100
+      setTimeout(() => { if (text) el.innerHTML = text; }, 150);
+    },
+    fail(msg='Failed to load') {
+      clearInterval(timer);
+      el.innerHTML = `<div class="muted">${msg}</div>`;
+    }
+  };
 }
 
 // ========== 유틸리티 ==========
@@ -196,13 +243,10 @@ async function checkHealth(){
 }
 
 // ========== 기본 분석 (/analyse) ==========
-async function analyse(){
+async function analyse(prefs){
   const goBtn = $("#go");
   const t = $("#ticker").value.trim().toUpperCase();
   const lang = $("#lang").value;
-
-  console.log("[click] Analyse pressed", { t, lang });
-
   if(!t){ alert('Ticker Symbol of the company.'); return; }
 
   goBtn.disabled = true; 
@@ -215,8 +259,6 @@ async function analyse(){
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ query: `${t} 유동성/건전성 평가`, language: lang })
     });
-
-    console.log("[/analyse] ok", data);
 
     $("#title").textContent = `${data.core?.company || '-'} (${data.core?.ticker || '-'})`;
     $("#meta").textContent  = `Last Price: ${data.core?.price ?? 'N/A'}  •  Source: ${data.meta?.source || '-'}`;
@@ -234,15 +276,21 @@ async function analyse(){
       ratioCard('Interest Coverage', sol.interest_coverage)
     ].join('');
 
+    // 📝 Narrative only if selected
     const md = (data.explanation || '').trim();
-    if (window.marked) { $("#narr").innerHTML = marked.parse(md); }
-    else { $("#narr").textContent = md; }
+    if (prefs?.narr) {
+      if (window.marked) { $("#narr").innerHTML = marked.parse(md); }
+      else { $("#narr").textContent = md; }
+      $("#narr-section")?.classList.remove('hidden');
+    } else {
+      $("#narr").textContent = '';
+      $("#narr-section")?.classList.add('hidden');
+    }
 
     $("#raw").textContent = JSON.stringify(data, null, 2);
     $("#out").classList.remove('hidden');
   }catch(e){
-    console.error("[/analyse] error", e);
-    alert('분석 실패: ' + (e?.message || e) + '\n(API_BASE 및 /health 확인)');
+    alert('분석 실패: ' + e.message + '\n(API_BASE 확인 및 /health 체크)');
   }finally{
     goBtn.disabled = false; 
     goBtn.textContent = '🔎 Analyse';
@@ -275,16 +323,17 @@ function renderNewsAnalysis(na, lang) {
 
 async function renderAgentExtras(ticker, lang, prefs){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
+
+  // 프리 상태 표시
   if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
   if (prefs.sum  && sumEl)  sumEl.textContent = '';
-  if (prefs.news && newsEl) newsEl.innerHTML = '';
+  if (prefs.news && newsEl) newsEl.innerHTML = `<li class="muted">Loading…</li>`;
 
-  // 직전 요청 취소(연타/옵션 변경 시 AbortError 방지)
+  // 직전 요청 취소(연타/옵션 변경 대비)
   if (_agentCtrl) _agentCtrl.abort();
   _agentCtrl = new AbortController();
 
   try{
-    // ⬇️ /agent는 계산이 길 수 있으므로 타임아웃 25초
     const ag = await fetchJSON(`${API_BASE}/agent?t=${Date.now()}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -297,41 +346,41 @@ async function renderAgentExtras(ticker, lang, prefs){
     }, 25000);
     console.log("[/agent] ok", ag);
 
+    // 🔮 Prediction
     if (prefs.pred && predEl) {
-      predEl.innerHTML = predCard(ag.prediction || { symbol: ticker });
+      predEl.innerHTML = predCard(ag?.prediction || { symbol: ticker });
       predEl.closest('section')?.classList.remove('hidden');
     }
-    if (prefs.sum  && sumEl)  {
-      sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
+
+    // 🧠 Analyst summary
+    if (prefs.sum && sumEl)  {
+      const txt = (ag?.summary || '').trim();
+      sumEl.textContent = txt || (lang === 'ko' ? '요약 없음' : 'No summary');
       sumEl.closest('section')?.classList.remove('hidden');
     }
 
-    // --- 분석 우선 렌더: 객체(overall 포함) → 분석카드, 배열 → 헤드라인
+    // 🗞 News / Analysis
     if (prefs.news && newsEl) {
-      try {
-        let na = null;
-        if (ag.news_analysis && ag.news_analysis.overall) {
-          na = ag.news_analysis;
-        } else if (!Array.isArray(ag.news) && ag.news && ag.news.overall) {
-          na = ag.news;            // 서버가 분석을 news에 넣어 보낼 때
-        }
+      let html = '';
+      // 1) 선호: 분석 객체(news_analysis)
+      let na = (ag && ag.news_analysis && ag.news_analysis.overall) ? ag.news_analysis : null;
+      // 2) 백업: 서버가 분석을 news에 담아 보내는 경우
+      if (!na && ag && ag.news && !Array.isArray(ag.news) && ag.news.overall) na = ag.news;
 
-        if (na) {
-          newsEl.innerHTML = renderNewsAnalysis(na, lang);
-        } else if (Array.isArray(ag.news) && ag.news.length) {
-          newsEl.innerHTML = newsList(ag.news); // 구형(헤드라인) 포맷도 지원
-        } else {
-          newsEl.innerHTML = `<div class="muted">${lang==='ko'?'분석 없음':'No media analysis available.'}</div>`;
-        }
-      } catch (e) {
-        console.error('render news error', e);
-        newsEl.innerHTML = `<div class="muted">${lang==='ko'?'분석 렌더 실패':'Media analysis unavailable.'}</div>`;
+      if (na) {
+        // 분석 카드 렌더
+        html = renderNewsAnalysis(na, lang);
+      } else if (Array.isArray(ag?.news) && ag.news.length) {
+        // 옛 포맷(헤드라인 배열)도 지원
+        html = newsList(ag.news);
+      } else {
+        html = `<div class="muted">${lang==='ko'?'분석/뉴스 없음':'No media analysis available.'}</div>`;
       }
+      newsEl.innerHTML = html;
       newsEl.closest('section')?.classList.remove('hidden');
     }
 
   }catch(e){
-    // Abort도 사용자에겐 조용히 처리
     if (e?.name === 'AbortError') {
       console.warn('[/agent] aborted');
     } else {
@@ -344,6 +393,7 @@ async function renderAgentExtras(ticker, lang, prefs){
     _agentCtrl = null;
   }
 }
+
 
 // ========== 메인 플로우 ==========
 async function analyseWithExtras(){
