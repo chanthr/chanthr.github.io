@@ -2,16 +2,16 @@
 const API_BASE = "https://chanthr-github-io.onrender.com";
 const $ = (s, el = document) => el.querySelector(s);
 
-// 전역 에러 캐치(스크립트 초기 에러도 화면에 노출)
+// ---------- Global error hooks ----------
 window.onerror = (m, src, line, col, err) => {
   console.error("[window.onerror]", m, src, line, col, err);
   const hl = $("#health"); if (hl) hl.textContent = "Script error";
 };
 window.onunhandledrejection = (e) => {
-  console.error("[unhandledrejection]", e.reason || e);
+  console.error("[unhandledrejection]", e?.reason || e);
 };
 
-// ========== Helper Tools for UI + FUC ==========
+// ---------- UI helpers ----------
 function ratioCard(title, node){
   if(!node) return '';
   const raw = node.value;
@@ -67,8 +67,8 @@ function newsList(items = []){
   }).join('');
 }
 
-// News  Added
-function NewsAnalysis(na, lang = 'ko') { 
+// --- Analysis card for media sentiment ---
+function renderNewsAnalysis(na, lang = 'ko') { 
   if (!na || !na.overall) return `<div class="muted">No media analysis.</div>`;
   const o = na.overall || {};
   const lbl = String(o.label || 'mixed');
@@ -83,7 +83,6 @@ function NewsAnalysis(na, lang = 'ko') {
 
   const badgeCls = lbl === 'bullish' ? 'BUY' : (lbl === 'bearish' ? 'SELL' : 'HOLD');
 
-  // 상위 5개 항목만 샘플로 노출 (제목 + 감성 + 태그)
   const items = (na.items || []).slice(0, 5).map(it => {
     const s = it.sentiment ?? 0;
     const emoji = s > 0.25 ? '📈' : (s < -0.25 ? '📉' : '➖');
@@ -101,17 +100,17 @@ function NewsAnalysis(na, lang = 'ko') {
   return `
     <div class="media-wrap">
       <div class="row align-center">
-        <strong>Media sentiment</strong>
+        <strong>${lang.startsWith('ko') ? '언론 톤' : 'Media sentiment'}</strong>
         <span class="badge ${badgeCls}" style="margin-left:8px;">${lblText}</span>
-        <span class="muted" style="margin-left:8px;">score ${score >= 0 ? '+' : ''}${score.toFixed(3)}</span>
-        <span class="muted" style="margin-left:8px;">impact ${impact >= 0 ? '+' : ''}${impact.toFixed(3)}</span>
+        <span class="muted" style="margin-left:8px;">score ${score >= 0 ? '+' : ''}${Number(score).toFixed(3)}</span>
+        <span class="muted" style="margin-left:8px;">impact ${impact >= 0 ? '+' : ''}${Number(impact).toFixed(3)}</span>
       </div>
 
       <div class="mt-8 muted">
         ${lang.startsWith('ko') ? '기사 분포' : 'Articles'}:
         <span class="pos">+${pos}</span> /
-        <span class="neg">-${neg}</span> /
-        <span class="neu">~${neu}</span>
+        <span class="neu">~${neu}</span> /
+        <span class="neg">-${neg}</span>
       </div>
 
       ${kws.length ? `<div class="mt-8">
@@ -120,33 +119,23 @@ function NewsAnalysis(na, lang = 'ko') {
       </div>` : ''}
 
       ${items ? `<ul class="news-list mt-12">${items}</ul>` : `<div class="muted mt-8">No representative items.</div>`}
+      ${na.note ? `<div class="mt-8 muted">${na.note}</div>` : ''}
     </div>
   `;
 }
 
-// ========== 옵션 읽기 & 섹션 표시 ==========
+// ---------- Section toggles ----------
 function getPrefs(){
   const narr = $("#opt-narr")?.checked ?? false; 
   const pred = $("#opt-pred")?.checked ?? false;
   const sum  = $("#opt-sum")?.checked  ?? false;
   const news = $("#opt-news")?.checked ?? false;
-  return { pred, sum, news };
-}
-
-function findWrap(childSel, preferredIdSel){
-  const byId = document.querySelector(preferredIdSel);
-  if (byId) return byId;
-  const child = document.querySelector(childSel);
-  if (child && child.closest) {
-    const sec = child.closest('section');
-    if (sec) return sec;
-  }
-  return child ? child.parentElement : null;
+  return { narr, pred, sum, news };
 }
 
 function applySectionVisibility(p){
   const S = {
-    narr: $("#narr-section"), 
+    narr: $("#narr-section"),
     pred: $("#pred-section"),
     sum:  $("#sum-section"),
     news: $("#news-section"),
@@ -157,13 +146,11 @@ function applySectionVisibility(p){
   if (S.news) S.news.classList.toggle('hidden', !p.news);
 }
 
-// ---------- Loading progress (fake but smooth) ----------
+// ---------- Loading progress (smooth fake) ----------
 function startProgressIn(el) {
-  // el can be a <div> or a <ul>. We inject valid markup for both cases.
+  // el can be a <div> or a <ul>. We inject valid markup for both.
   const isUL = el && el.tagName === 'UL';
-  const wrap = isUL
-    ? document.createElement('li')
-    : document.createElement('div');
+  const wrap = isUL ? document.createElement('li') : document.createElement('div');
   wrap.className = isUL ? 'loading-item' : 'loading';
 
   wrap.innerHTML = `
@@ -177,7 +164,6 @@ function startProgressIn(el) {
   const pctEl = wrap.querySelector('.pct');
   let pct = 0;
   const timer = setInterval(() => {
-    // accelerate to ~90% then wait for finish()
     pct += Math.random() * 12 + 6;
     if (pct > 90) pct = 90;
     bar.style.width = pct.toFixed(0) + '%';
@@ -185,13 +171,11 @@ function startProgressIn(el) {
   }, 220);
 
   return {
-    finish(text) {
+    finish(html) {
       clearInterval(timer);
-      pct = 100;
       bar.style.width = '100%';
       pctEl.textContent = 'Loading 100%';
-      // slight delay so users see it hit 100
-      setTimeout(() => { if (text) el.innerHTML = text; }, 150);
+      setTimeout(() => { if (html != null) el.innerHTML = html; }, 150);
     },
     fail(msg='Failed to load') {
       clearInterval(timer);
@@ -200,16 +184,12 @@ function startProgressIn(el) {
   };
 }
 
-// ========== 유틸리티 ==========
+// ---------- Fetch helper ----------
 async function fetchJSON(url, opts = {}, timeoutMs = 9000) {
-  // 외부에서 전달한 AbortSignal이 있으면 그걸 우선 사용
-  const externalSignal = opts.signal;
-  const ctrl = externalSignal || new AbortController();
+  const extSignal = opts.signal;
+  const ctrl = extSignal || new AbortController();
   const signal = ctrl.signal;
-
-  // 외부 신호가 없을 때만 내부 타임아웃으로 abort
-  const timer = externalSignal ? null : setTimeout(() => ctrl.abort(), timeoutMs);
-
+  const timer = extSignal ? null : setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { cache: "no-store", mode: "cors", ...opts, signal });
     if (timer) clearTimeout(timer);
@@ -221,7 +201,7 @@ async function fetchJSON(url, opts = {}, timeoutMs = 9000) {
   }
 }
 
-// ========== Health ==========
+// ---------- Health ----------
 async function checkHealth(){
   const apiEl = $("#health");
   const llmEl = $("#llm");
@@ -242,7 +222,7 @@ async function checkHealth(){
   }
 }
 
-// ========== 기본 분석 (/analyse) ==========
+// ---------- Analyse (/analyse) ----------
 async function analyse(prefs){
   const goBtn = $("#go");
   const t = $("#ticker").value.trim().toUpperCase();
@@ -276,7 +256,7 @@ async function analyse(prefs){
       ratioCard('Interest Coverage', sol.interest_coverage)
     ].join('');
 
-    // 📝 Narrative only if selected
+    // 📝 Narrative (only if selected)
     const md = (data.explanation || '').trim();
     if (prefs?.narr) {
       if (window.marked) { $("#narr").innerHTML = marked.parse(md); }
@@ -297,39 +277,24 @@ async function analyse(prefs){
   }
 }
 
-// ========== 에이전트 섹션 (/agent) ==========
-let _agentCtrl = null;  // 직전 요청 취소용 컨트롤러
-
-function renderNewsAnalysis(na, lang) {
-  // 서버가 돌려주는 분석 오브젝트를 카드로 표시
-  // na.overall: {score, label, pos, neg, neu, impact_score, top_keywords[]}
-  const o = na?.overall || {};
-  const label = (o.label || 'mixed').toUpperCase();
-  const kw = (o.top_keywords || []).slice(0, 10).join(', ') || (lang==='ko'?'키워드 없음':'No keywords');
-  const pos = o.pos ?? 0, neg = o.neg ?? 0, neu = o.neu ?? 0;
-
-  return `
-    <div class="ratio">
-      <div><strong>${lang==='ko'?'언론 톤 요약':'Media Sentiment'}</strong>
-        <span class="badge ${label==='BULLISH'?'BUY':label==='BEARISH'?'SELL':'HOLD'}">${label}</span>
-      </div>
-      <div class="mt-6">${lang==='ko'?'점수':'Score'}: ${o.score ?? 0}  •  Impact: ${o.impact_score ?? 0}</div>
-      <div class="mt-6">${lang==='ko'?'기사 분포':'Articles'}: +${pos} / 0${neu} / -${neg}</div>
-      <div class="mt-6">${lang==='ko'?'핵심 키워드':'Top keywords'}: ${kw}</div>
-      ${na.note ? `<div class="mt-6 muted">${na.note}</div>` : ''}
-    </div>
-  `;
-}
+// ---------- Agent (/agent) ----------
+let _agentCtrl = null;
 
 async function renderAgentExtras(ticker, lang, prefs){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
 
-  // 프리 상태 표시
-  if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
-  if (prefs.sum  && sumEl)  sumEl.textContent = '';
-  if (prefs.news && newsEl) newsEl.innerHTML = `<li class="muted">Loading…</li>`;
+  // show sections so progress is visible
+  if (prefs.pred) $("#pred-section")?.classList.remove('hidden');
+  if (prefs.sum)  $("#sum-section") ?.classList.remove('hidden');
+  if (prefs.news) $("#news-section")?.classList.remove('hidden');
 
-  // 직전 요청 취소(연타/옵션 변경 대비)
+  // progress instances
+  let predProg = null, sumProg = null, newsProg = null;
+  if (prefs.pred && predEl) predProg = startProgressIn(predEl);
+  if (prefs.sum  && sumEl)  sumProg  = startProgressIn(sumEl);
+  if (prefs.news && newsEl) newsProg = startProgressIn(newsEl);
+
+  // cancel previous request
   if (_agentCtrl) _agentCtrl.abort();
   _agentCtrl = new AbortController();
 
@@ -347,59 +312,48 @@ async function renderAgentExtras(ticker, lang, prefs){
     console.log("[/agent] ok", ag);
 
     // 🔮 Prediction
-    if (prefs.pred && predEl) {
-      predEl.innerHTML = predCard(ag?.prediction || { symbol: ticker });
-      predEl.closest('section')?.classList.remove('hidden');
+    if (prefs.pred && predEl && predProg) {
+      predProg.finish(predCard(ag?.prediction || { symbol: ticker }));
     }
 
     // 🧠 Analyst summary
-    if (prefs.sum && sumEl)  {
-      const txt = (ag?.summary || '').trim();
-      sumEl.textContent = txt || (lang === 'ko' ? '요약 없음' : 'No summary');
-      sumEl.closest('section')?.classList.remove('hidden');
+    if (prefs.sum && sumEl && sumProg)  {
+      const txt = (ag?.summary || '').trim()
+        || (lang === 'ko' ? '요약 없음' : 'No summary');
+      sumProg.finish(`<div class="summary muted">${txt}</div>`);
     }
 
     // 🗞 News / Analysis
-    if (prefs.news && newsEl) {
+    if (prefs.news && newsEl && newsProg) {
       let html = '';
-      // 1) 선호: 분석 객체(news_analysis)
       let na = (ag && ag.news_analysis && ag.news_analysis.overall) ? ag.news_analysis : null;
-      // 2) 백업: 서버가 분석을 news에 담아 보내는 경우
       if (!na && ag && ag.news && !Array.isArray(ag.news) && ag.news.overall) na = ag.news;
 
       if (na) {
-        // 분석 카드 렌더
         html = renderNewsAnalysis(na, lang);
       } else if (Array.isArray(ag?.news) && ag.news.length) {
-        // 옛 포맷(헤드라인 배열)도 지원
         html = newsList(ag.news);
       } else {
         html = `<div class="muted">${lang==='ko'?'분석/뉴스 없음':'No media analysis available.'}</div>`;
       }
-      newsEl.innerHTML = html;
-      newsEl.closest('section')?.classList.remove('hidden');
+      newsProg.finish(html);
     }
 
   }catch(e){
-    if (e?.name === 'AbortError') {
-      console.warn('[/agent] aborted');
-    } else {
-      console.error("[/agent] error", e);
-    }
-    if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
-    if (prefs.sum  && sumEl)  sumEl.textContent = '';
-    if (prefs.news && newsEl) newsEl.innerHTML  = `<li class="muted">News unavailable.</li>`;
+    if (e?.name !== 'AbortError') console.error("[/agent] error", e);
+    if (predProg) predProg.fail('Prediction unavailable.');
+    if (sumProg)  sumProg.fail('Summary unavailable.');
+    if (newsProg) newsProg.fail('News unavailable.');
   } finally {
     _agentCtrl = null;
   }
 }
 
-
-// ========== 메인 플로우 ==========
+// ---------- Orchestration ----------
 async function analyseWithExtras(){
   const prefs = getPrefs();
   applySectionVisibility(prefs);
-  await analyse();
+  await analyse(prefs);
 
   const t = $("#ticker").value.trim().toUpperCase();
   const lang = $("#lang").value;
@@ -408,17 +362,14 @@ async function analyseWithExtras(){
   await renderAgentExtras(t, lang, prefs);
 }
 
-// ========== Boot ==========
+// ---------- Boot ----------
 document.addEventListener('DOMContentLoaded', () => {
   console.log("[boot] DOM ready");
   applySectionVisibility(getPrefs());
   checkHealth();
 
   const go = $("#go");
-  if (!go) {
-    console.error("[boot] #go not found!");
-    return;
-  }
+  if (!go) { console.error("[boot] #go not found!"); return; }
   go.addEventListener('click', analyseWithExtras);
   $("#ticker").addEventListener('keydown', (e)=>{ if(e.key==='Enter') analyseWithExtras(); });
 
@@ -429,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  ["#opt-pred","#opt-sum","#opt-news"].forEach(id=>{
+  ["#opt-narr","#opt-pred","#opt-sum","#opt-news"].forEach(id=>{
     const el = $(id);
     if (el) el.addEventListener('change', ()=> applySectionVisibility(getPrefs()));
   });
