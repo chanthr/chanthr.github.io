@@ -123,8 +123,8 @@ async function checkHealth(){
     if (apiEl) apiEl.textContent = h?.status === "ok" ? "OK" : "Error";
 
     const on = (x)=> x && x.ready && x.provider ? `${x.provider.toUpperCase()} ON` : `Fallback (${x?.reason || "no LLM"})`;
-    if (llmEl) llmEl.textContent = `Finance: ${on(h?.finance_llm)}  •  Agent: ${on(h?.agent_llm)}`;
-    console.log("LLM status:", h?.finance_llm, h?.agent_llm);
+    if (llmEl) llmEl.textContent = `Fin: ${on(h?.finance_llm)}  •  Agent: ${on(h?.agent_llm)}`;
+    console.log("Status:", h?.finance_llm, h?.agent_llm);
   }catch(e){
     console.error("health error", e);
     if (apiEl) apiEl.textContent = "Offline / Timeout";
