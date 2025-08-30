@@ -244,6 +244,7 @@ async function analyse(){
 }
 
 // ========== 에이전트 섹션 (/agent) ==========
+// --- 에이전트 섹션 (/agent) ---
 async function renderAgentExtras(ticker, lang, prefs){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
   if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Loading prediction…</div>`;
@@ -251,7 +252,7 @@ async function renderAgentExtras(ticker, lang, prefs){
   if (prefs.news && newsEl) newsEl.innerHTML = '';
 
   try{
-    console.time('/agent');
+    // ⬇️ 타임아웃을 50000ms로 확장
     const ag = await fetchJSON(`${API_BASE}/agent?t=${Date.now()}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -260,9 +261,7 @@ async function renderAgentExtras(ticker, lang, prefs){
         language: lang,
         include_news: !!prefs.news
       })
-    });
-    }, 30000); // ← 30초로 늘림
-    console.timeEnd('/agent');
+    }, 50000);
     console.log("[/agent] ok", ag);
 
     if (prefs.pred && predEl) {
@@ -273,22 +272,35 @@ async function renderAgentExtras(ticker, lang, prefs){
       sumEl.textContent = (ag.summary || '').trim() || (lang === 'ko' ? '요약 없음' : 'No summary');
       sumEl.closest('section')?.classList.remove('hidden');
     }
-    
+
+    // --- News / Media analysis (분석 우선, 없으면 헤드라인로 폴백)
     if (prefs.news && newsEl) {
       try {
-        // 서버가 news_analysis를 주면 그걸 우선 사용
         const na =
-          ag.news_analysis ||
-          ((!Array.isArray(ag.news) && ag.news && ag.news.overall) ? ag.news : null);
+          ag.news_analysis ||                // 서버가 별도 키로 줄 때
+          ((!Array.isArray(ag.news) && ag.news && ag.news.overall) ? ag.news : null); // news를 분석오브젝트로 반환할 때
 
         if (na && typeof renderNewsAnalysis === 'function') {
           newsEl.innerHTML = renderNewsAnalysis(na, lang);
         } else if (Array.isArray(ag.news) && ag.news.length) {
-            // 폴백: 헤드라인 리스트만 왔을 때
           newsEl.innerHTML = newsList(ag.news);
         } else {
           newsEl.innerHTML = `<div class="muted">No media analysis available.</div>`;
         }
+      } catch (e) {
+        console.error('render news error', e);
+        newsEl.innerHTML = `<div class="muted">Media analysis unavailable.</div>`;
+      }
+      newsEl.closest('section')?.classList.remove('hidden');
+    }
+  }catch(e){
+    console.error("[/agent] error", e);
+    if (prefs.pred && predEl) predEl.innerHTML = `<div class="muted">Prediction unavailable.</div>`;
+    if (prefs.sum  && sumEl)  sumEl.textContent = '';
+    if (prefs.news && newsEl) newsEl.innerHTML  = `<li class="muted">News unavailable.</li>`;
+  }
+}
+
       } catch (e) {
         console.error('render news error', e);
         newsEl.innerHTML = `<div class="muted">Media analysis unavailable.</div>`;
