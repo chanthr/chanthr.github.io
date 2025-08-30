@@ -90,66 +90,180 @@ def _predict_fallback(symbol: str) -> dict:
     }
 
 
-# ---------------- 뉴스(yfinance + Google News) ----------------
+# ---------------- 뉴스 수집 (폴백) ----------------
+# ---------------- Google News helpers (링크 언랩/피드 파싱) ----------------
+def _unwrap_gnews_link(link: Optional[str]) -> Optional[str]:
+    """Google News RSS 링크를 실제 퍼블리셔 기사 URL로 언랩."""
+    if not link:
+        return link
+    try:
+        if "news.google.com" not in link:
+            return link
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(link)
+        qs = parse_qs(parsed.query)
+        u = (qs.get("url") or qs.get("u") or [None])[0]
+        return u or link
+    except Exception:
+        return link
+
+
+def _fetch_google_news_rss(query: str, language: str, k: int = 12) -> List[Dict]:
+    """Google News RSS에서 최대 k개 가져오기 (published/updated 모두 처리)."""
+    is_ko = str(language).lower().startswith("ko")
+    hl = "ko" if is_ko else "en-US"
+    gl = "KR" if is_ko else "US"
+    url = (
+        "https://news.google.com/rss/search?q="
+        + urllib.parse.quote_plus(query)
+        + f"&hl={hl}&gl={gl}&ceid={gl}:{hl}"
+    )
+    try:
+        import feedparser as _fp
+    except Exception:
+        return []
+
+    feed = _fp.parse(url)
+    out: List[Dict] = []
+    for e in getattr(feed, "entries", [])[:k]:
+        title = e.get("title")
+        link = e.get("link") or (e.get("links", [{}])[0].get("href"))
+        link = _unwrap_gnews_link(link)
+        ts = None
+        try:
+            pp = getattr(e, "published_parsed", None)
+            up = getattr(e, "updated_parsed", None)
+            if pp:
+                ts = int(time.mktime(pp))
+            elif up:
+                ts = int(time.mktime(up))
+        except Exception:
+            ts = None
+        if title and link:
+            out.append({"title": title, "link": link, "providerPublishTime": ts})
+    return out
+
+
+# ---------------- 회사명 기반 쿼리 생성 ----------------
+_CORP_SUFFIX_RE = re.compile(
+    r"\b(Inc\.?|Incorporated|Corp\.?|Corporation|Co\.?|Ltd\.?|Limited|PLC|S\.?A\.?|N\.?V\.?|SE|AG|KK|GmbH|LLC|LP|Holdings?|Group|Company)\b\.?",
+    flags=re.I,
+)
+
+def _clean_company_name(name: str) -> str:
+    """법인 접미사/괄호 제거, 여백 정리."""
+    s = re.sub(r"[\(\)（）]", " ", name or "")
+    s = _CORP_SUFFIX_RE.sub(" ", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return s or name
+
+
+def _make_company_queries(company_name: str, symbol: str, language: str) -> List[str]:
+    """
+    우선순위:
+    1) "정확 회사명" (큰따옴표)
+    2) "정리된 회사명" (법인접미사 제거)
+    3) 일반 이슈 키워드 확장 (주가/stock 제외)
+    4) (마지막 수단) 심볼 단독
+    """
+    q: List[str] = []
+    base = company_name.strip()
+    clean = _clean_company_name(base)
+
+    # 1) 정확 매칭 우선
+    q.append(f"\"{base}\"")
+    if clean and clean.lower() != base.lower():
+        q.append(f"\"{clean}\"")
+
+    # 2) 일반 이슈 토픽 확장 (언어별)
+    if language.lower().startswith("ko"):
+        topics = "발표 OR 출시 OR 인수 OR 합병 OR 제휴 OR 투자 OR 규제 OR 소송 OR 공급망 OR 실적발표"
+    else:
+        topics = "announcement OR launch OR acquisition OR merger OR partnership OR investment OR regulatory OR lawsuit OR supply chain OR earnings call"
+    q.append(f"\"{base}\" ({topics})")
+    if clean and clean.lower() != base.lower():
+        q.append(f"\"{clean}\" ({topics})")
+
+    # 3) 마지막 수단: 티커 자체 (주가/stock 같은 단어는 붙이지 않음)
+    if symbol:
+        q.append(symbol)
+
+    # 중복 제거, 순서 유지
+    seen = set()
+    uniq = []
+    for s in q:
+        if s.lower() not in seen:
+            seen.add(s.lower())
+            uniq.append(s)
+    return uniq
+
+
+# ---------------- 뉴스(yfinance + Google News, 회사명 우선) ----------------
 def _news_enriched(symbol: str, language: str, company_name: Optional[str] = None, k: int = 10) -> List[Dict]:
+    """
+    회사명 중심으로 최신 이슈 뉴스 수집:
+      - Google News: 회사명 정확 매칭 + 일반 이슈 토픽 확장
+      - 부족 시 yfinance 뉴스 보강
+      - 제목/링크 중복 제거, 시간 역순 정렬
+    """
     items: List[Dict] = []
 
-    # 1) yfinance
+    # 1) 회사명 우선 Google News
+    if company_name:
+        for q in _make_company_queries(company_name, symbol, language):
+            try:
+                items.extend(_fetch_google_news_rss(q, language, k=max(20, k * 2)))
+            except Exception:
+                continue
+            if len(items) >= k:
+                break
+    else:
+        # 회사명이 없는 경우 심볼로만 시도
+        try:
+            items.extend(_fetch_google_news_rss(symbol, language, k=max(20, k * 2)))
+        except Exception:
+            pass
+
+    # 2) yfinance 뉴스 보강 (마켓 뉴스가 섞여도 최근성 측면에서 유용)
     try:
         arr = getattr(yf.Ticker(symbol), "news", []) or []
-        for n in arr[:k]:
-            items.append({
-                "title": n.get("title"),
-                "link": n.get("link"),
-                "providerPublishTime": n.get("providerPublishTime") or n.get("pubTime"),
-            })
+        for n in arr[: max(10, k)]:
+            title = n.get("title")
+            link = _unwrap_gnews_link(n.get("link"))
+            ts = n.get("providerPublishTime") or n.get("pubTime")
+            try:
+                ts = int(ts) if ts is not None else None
+            except Exception:
+                ts = None
+            if title and link:
+                items.append({"title": title, "link": link, "providerPublishTime": ts})
     except Exception:
         pass
 
-    # 2) Google News 보강
-    def _google(q: str):
-        is_ko = str(language).lower().startswith("ko")
-        hl = "ko" if is_ko else "en-US"
-        gl = "KR" if is_ko else "US"
-        url = ("https://news.google.com/rss/search?q="
-               + urllib.parse.quote_plus(q)
-               + f"&hl={hl}&gl={gl}&ceid={gl}:{hl}")
-        feed = feedparser.parse(url)
-        out = []
-        for e in feed.entries[:k]:
-            link = e.get("link") or (e.get("links", [{}])[0].get("href"))
-            ts = int(time.mktime(e.published_parsed)) if getattr(e, "published_parsed", None) else None
-            out.append({"title": e.get("title"), "link": link, "providerPublishTime": ts})
-        return out
-
-    if len(items) < 3:
-        q = f"{symbol} 주가 OR {symbol} 실적 OR {symbol} 주식" if language[:2]=="ko" else f"{symbol} stock OR earnings"
-        try:
-            items.extend(_google(q))
-        except Exception:
-            pass
-
-    if len(items) < 3 and company_name:
-        q2 = f"{company_name} 주가 OR {company_name} 실적 OR {company_name} 주식" if language[:2]=="ko" else f"{company_name} stock OR earnings"
-        try:
-            items.extend(_google(q2))
-        except Exception:
-            pass
-
-    # 3) 클린업(제목 없음/중복 링크 제거)
-    clean, seen = [], set()
+    # 3) 정리: 중복 제거 + 최신순 정렬
+    clean: List[Dict] = []
+    seen = set()
     for it in items:
-        t = (it or {}).get("title") or ""
-        lk = (it or {}).get("link")
-        if not t.strip():
+        title = (it.get("title") or "").strip()
+        link = _unwrap_gnews_link(it.get("link"))
+        ts = it.get("providerPublishTime")
+        if not title or not link:
             continue
-        if lk and lk in seen:
+        key = (title.lower(), link)
+        if key in seen:
             continue
-        if lk:
-            seen.add(lk)
-        clean.append(it)
-    return clean[:k]
+        seen.add(key)
+        # ts 정규화
+        if ts is not None and not isinstance(ts, (int, float)):
+            try:
+                ts = int(ts)
+            except Exception:
+                ts = None
+        clean.append({"title": title, "link": link, "providerPublishTime": ts})
 
+    # 최신순
+    clean.sort(key=lambda x: x.get("providerPublishTime") or 0, reverse=True)
+    return clean[:k]
 
 # ---------------- IB 애널리스트 톤 요약 ----------------
 def _ib_style_summary_rule(ana: dict, pred: Optional[dict], language: str) -> str:
@@ -283,4 +397,4 @@ def run_manager(query: str, language: str = "ko", include_news: bool = True) -> 
         }
     }
 
-__all__ = ["run_manager", "get_model_status"]  # ✅ 내보내기
+__all__ = ["run_manager", "get_model_status"]  # Result out
