@@ -478,8 +478,7 @@ def run_manager(query: str, language: str = "ko", include_news: bool = True) -> 
         "price": ana["core"]["price"],
         "analysis": ana,
         "prediction": pred,
-        # "news": news,  # Removed for now, because not using anymore.
-        "news_analysis": news_analysis,   # ✅ 추가: 미디어 톤/키워드/임팩트
+        "news":  news_analysis, # ✅ 추가: 미디어 톤/키워드/임팩트
         "summary": text,
         "meta": {
             "llm_provider": _LLM_PROVIDER,
