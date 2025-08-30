@@ -11,6 +11,9 @@ window.onunhandledrejection = (e) => {
   console.error("[unhandledrejection]", e?.reason || e);
 };
 
+// ---------- Small utils ----------
+const escapeHTML = (s='') => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
 // ---------- UI helpers ----------
 function ratioCard(title, node){
   if(!node) return '';
@@ -33,7 +36,7 @@ function predCard(p = {}){
   if (p && p.error) {
     return `<div class="ratio">
       <div><strong>${p.symbol || '-'}</strong></div>
-      <div class="mt-6 muted">Prediction failed: ${String(p.error)}</div>
+      <div class="mt-6 muted">Prediction failed: ${escapeHTML(String(p.error))}</div>
     </div>`;
   }
   const signal = (p.signal || 'HOLD').toUpperCase();
@@ -48,26 +51,7 @@ function predCard(p = {}){
     </div>`;
 }
 
-function fmtTime(ts){
-  try {
-    if (!ts) return '';
-    const d = new Date(Number(ts) * 1000);
-    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(d);
-  } catch { return ''; }
-}
-function newsList(items = []){
-  if(!Array.isArray(items) || items.length === 0){
-    return `<li class="muted">No recent headlines.</li>`;
-  }
-  return items.map(n => {
-    const t = (n.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const link = n.link || '#';
-    const when = fmtTime(n.providerPublishTime || n.pubTime || n.time || n.pub_time);
-    return `<li><a href="${link}" target="_blank" rel="noopener">${t}</a>${when ? ` <time>· ${when}</time>`:''}</li>`;
-  }).join('');
-}
-
-// --- Analysis card for media sentiment ---
+// --- Analysis card for media sentiment (NO article list) ---
 function renderNewsAnalysis(na, lang = 'ko') { 
   if (!na || !na.overall) return `<div class="muted">No media analysis.</div>`;
   const o = na.overall || {};
@@ -76,50 +60,34 @@ function renderNewsAnalysis(na, lang = 'ko') {
     ? (lbl === 'bullish' ? '긍정적' : lbl === 'bearish' ? '부정적' : '혼재')
     : lbl;
 
-  const score = (o.score ?? 0);
-  const impact = (o.impact_score ?? 0);
+  const score  = Number(o.score ?? 0);
+  const impact = Number(o.impact_score ?? 0);
   const pos = o.pos ?? 0, neg = o.neg ?? 0, neu = o.neu ?? 0;
   const kws = (o.top_keywords || []).slice(0, 10);
 
   const badgeCls = lbl === 'bullish' ? 'BUY' : (lbl === 'bearish' ? 'SELL' : 'HOLD');
 
-  const items = (na.items || []).slice(0, 5).map(it => {
-    const s = it.sentiment ?? 0;
-    const emoji = s > 0.25 ? '📈' : (s < -0.25 ? '📉' : '➖');
-    const tags = (it.impact_tags || []).map(t => `<span class="chip">${t}</span>`).join(' ');
-    const safeTitle = String(it.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const when = it.ts ? new Date(it.ts * 1000).toLocaleString() : '';
-    return `
-      <li class="media-item">
-        <a href="${it.link || '#'}" target="_blank" rel="noopener">${emoji} ${safeTitle}</a>
-        ${when ? `<time> · ${when}</time>` : ''}
-        ${tags ? `<div class="mt-4">${tags}</div>` : ''}
-      </li>`;
-  }).join('');
-
   return `
-    <div class="media-wrap">
+    <div class="ratio">
       <div class="row align-center">
         <strong>${lang.startsWith('ko') ? '언론 톤' : 'Media sentiment'}</strong>
         <span class="badge ${badgeCls}" style="margin-left:8px;">${lblText}</span>
-        <span class="muted" style="margin-left:8px;">score ${score >= 0 ? '+' : ''}${Number(score).toFixed(3)}</span>
-        <span class="muted" style="margin-left:8px;">impact ${impact >= 0 ? '+' : ''}${Number(impact).toFixed(3)}</span>
       </div>
-
-      <div class="mt-8 muted">
+      <div class="mt-6 muted">
+        ${lang.startsWith('ko') ? '점수' : 'Score'}: ${score >= 0 ? '+' : ''}${score.toFixed(3)}
+        &nbsp;•&nbsp; Impact: ${impact >= 0 ? '+' : ''}${impact.toFixed(3)}
+      </div>
+      <div class="mt-6 muted">
         ${lang.startsWith('ko') ? '기사 분포' : 'Articles'}:
         <span class="pos">+${pos}</span> /
         <span class="neu">~${neu}</span> /
         <span class="neg">-${neg}</span>
       </div>
-
       ${kws.length ? `<div class="mt-8">
         ${(lang.startsWith('ko') ? '핵심 키워드' : 'Top keywords')}:
-        ${kws.map(k=>`<span class="chip">${k}</span>`).join(' ')}
+        ${kws.map(k=>`<span class="chip">${escapeHTML(k)}</span>`).join(' ')}
       </div>` : ''}
-
-      ${items ? `<ul class="news-list mt-12">${items}</ul>` : `<div class="muted mt-8">No representative items.</div>`}
-      ${na.note ? `<div class="mt-8 muted">${na.note}</div>` : ''}
+      ${na.note ? `<div class="mt-8 muted">${escapeHTML(na.note)}</div>` : ''}
     </div>
   `;
 }
@@ -132,7 +100,6 @@ function getPrefs(){
   const news = $("#opt-news")?.checked ?? false;
   return { narr, pred, sum, news };
 }
-
 function applySectionVisibility(p){
   const S = {
     narr: $("#narr-section"),
@@ -146,13 +113,11 @@ function applySectionVisibility(p){
   if (S.news) S.news.classList.toggle('hidden', !p.news);
 }
 
-// ---------- Loading progress (smooth fake) ----------
+// ---------- Loading progress ----------
 function startProgressIn(el) {
-  // el can be a <div> or a <ul>. We inject valid markup for both.
   const isUL = el && el.tagName === 'UL';
   const wrap = isUL ? document.createElement('li') : document.createElement('div');
   wrap.className = isUL ? 'loading-item' : 'loading';
-
   wrap.innerHTML = `
     <div class="progress"><div class="bar" style="width:0%"></div></div>
     <span class="pct">Loading 0%</span>
@@ -179,7 +144,7 @@ function startProgressIn(el) {
     },
     fail(msg='Failed to load') {
       clearInterval(timer);
-      el.innerHTML = `<div class="muted">${msg}</div>`;
+      el.innerHTML = `<div class="muted">${escapeHTML(msg)}</div>`;
     }
   };
 }
@@ -283,12 +248,12 @@ let _agentCtrl = null;
 async function renderAgentExtras(ticker, lang, prefs){
   const predEl = $("#pred"), sumEl = $("#sum"), newsEl = $("#news");
 
-  // show sections so progress is visible
+  // Show sections so progress is visible
   if (prefs.pred) $("#pred-section")?.classList.remove('hidden');
   if (prefs.sum)  $("#sum-section") ?.classList.remove('hidden');
   if (prefs.news) $("#news-section")?.classList.remove('hidden');
 
-  // progress instances
+  // Progress bars
   let predProg = null, sumProg = null, newsProg = null;
   if (prefs.pred && predEl) predProg = startProgressIn(predEl);
   if (prefs.sum  && sumEl)  sumProg  = startProgressIn(sumEl);
@@ -316,26 +281,19 @@ async function renderAgentExtras(ticker, lang, prefs){
       predProg.finish(predCard(ag?.prediction || { symbol: ticker }));
     }
 
-    // 🧠 Analyst summary
+    // 🧠 Analyst summary (do NOT nest .summary again)
     if (prefs.sum && sumEl && sumProg)  {
       const txt = (ag?.summary || '').trim()
         || (lang === 'ko' ? '요약 없음' : 'No summary');
-      sumProg.finish(`<div class="summary muted">${txt}</div>`);
+      sumProg.finish(escapeHTML(txt));
     }
 
-    // 🗞 News / Analysis
+    // 🗞 News / Analysis ONLY (no headline fallback)
     if (prefs.news && newsEl && newsProg) {
-      let html = '';
+      let html = `<div class="muted">${lang==='ko'?'분석 없음':'No media analysis available.'}</div>`;
       let na = (ag && ag.news_analysis && ag.news_analysis.overall) ? ag.news_analysis : null;
       if (!na && ag && ag.news && !Array.isArray(ag.news) && ag.news.overall) na = ag.news;
-
-      if (na) {
-        html = renderNewsAnalysis(na, lang);
-      } else if (Array.isArray(ag?.news) && ag.news.length) {
-        html = newsList(ag.news);
-      } else {
-        html = `<div class="muted">${lang==='ko'?'분석/뉴스 없음':'No media analysis available.'}</div>`;
-      }
+      if (na) html = renderNewsAnalysis(na, lang);
       newsProg.finish(html);
     }
 
@@ -347,6 +305,41 @@ async function renderAgentExtras(ticker, lang, prefs){
   } finally {
     _agentCtrl = null;
   }
+}
+
+// ---------- Patch Notes (floating button + modal) ----------
+function mountPatchNotes(){
+  const notes = (window.PATCH_NOTES || []);
+  if (!Array.isArray(notes) || !notes.length) return;
+
+  const fab = document.createElement('button');
+  fab.className = 'patch-fab';
+  fab.innerHTML = `<span class="pulse" aria-hidden="true"></span><span>Patch Notes</span>`;
+  document.body.appendChild(fab);
+
+  const modal = document.createElement('div');
+  modal.className = 'patch-modal';
+  const items = notes.map(n=>{
+    const chips = (n.changes||[]).map(c=>{
+      const cls = c.kind === 'added' ? 'added' : c.kind === 'fixed' ? 'fixed' : 'changed';
+      return `<div class="patch-item"><span class="tag ${cls}">${c.kind}</span>${escapeHTML(c.text)}</div>`;
+    }).join('');
+    return `
+      <div class="patch-card">
+        <div class="row align-center" style="justify-content:space-between;">
+          <div><strong>${escapeHTML(n.title || '')}</strong></div>
+          <div class="muted">${escapeHTML(n.version || '')} • ${escapeHTML(n.date || '')}</div>
+        </div>
+        ${chips}
+      </div>
+    `;
+  }).join('');
+
+  modal.innerHTML = `<div style="padding:16px; width:100%; display:flex; align-items:center; justify-content:center;">${items}</div>`;
+  modal.addEventListener('click', (e)=>{ if (e.target === modal) modal.classList.remove('open'); });
+  document.body.appendChild(modal);
+
+  fab.addEventListener('click', ()=> modal.classList.add('open'));
 }
 
 // ---------- Orchestration ----------
@@ -367,6 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
   console.log("[boot] DOM ready");
   applySectionVisibility(getPrefs());
   checkHealth();
+  mountPatchNotes();
 
   const go = $("#go");
   if (!go) { console.error("[boot] #go not found!"); return; }
