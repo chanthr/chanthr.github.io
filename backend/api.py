@@ -1,17 +1,38 @@
+# api.py
 import os
 from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import yfinance as yf
 
-from finance_agent import run_query as fin_run_query, compute_ratios_for_ticker
-from llm_core import get_model_status as agent_llm_status, summarize_ib
+# finance agent (LLM 없음)
+from finance_agent import (
+    run_query as fin_run_query,
+    compute_ratios_for_ticker,
+    get_llm_status as finance_llm_status,  # 헬스 표시용
+)
+
+# LLM 코어 (Groq 연결/IB 요약/미디어 요약)
+from llm_core import (
+    get_model_status as agent_llm_status,
+    summarize_ib,
+    summarize_media,
+)
+
+# 예측 모듈
 from predict_agent import predict
-from news_agent import get_news_analysis
 
-app = FastAPI(title="LSA Agent API", version="1.0")
+# (선택) 뉴스 집계기
+try:
+    from news_agent import get_news_analysis
+    _HAVE_NEWS_AGENT = True
+except Exception:
+    _HAVE_NEWS_AGENT = False
 
-# ---- CORS: 한 번만! ----
+app = FastAPI(title="LSA Agent API", version="1.1")
+
+# ---- CORS (한 번만!) ----
 origins_env = os.getenv("CORS_ORIGINS", "https://chanthr.github.io,http://localhost:5173")
 ALLOWED_ORIGINS = [o.strip() for o in origins_env.split(",") if o.strip()]
 
@@ -27,13 +48,15 @@ app.add_middleware(
     max_age=86400,
 )
 
-# ---- Schemas ----
+# ============= Schemas =============
 class AnalyseReq(BaseModel):
     query: str
     language: str = "ko"
 
 class PredictReq(BaseModel):
-    ticker: str
+    # 프론트는 symbol을 보내지만, 하위호환 위해 ticker도 허용
+    symbol: Optional[str] = None
+    ticker: Optional[str] = None
 
 class SummaryReq(BaseModel):
     ticker: str
@@ -44,10 +67,15 @@ class MediaReq(BaseModel):
     language: str = "ko"
     company: Optional[str] = None
 
-# ---- Routes ----
+
+# ============= Routes =============
 @app.get("/health")
 def health():
-    return {"status": "ok", "agent_llm": agent_llm_status()}
+    return {
+        "status": "ok",
+        "finance_llm": finance_llm_status(),  # finance_agent는 LLM 없음
+        "agent_llm": agent_llm_status(),      # llm_core(Groq) 상태
+    }
 
 @app.post("/analyse")
 def analyse(req: AnalyseReq):
@@ -58,14 +86,22 @@ def analyse(req: AnalyseReq):
 
 @app.post("/predict")
 def do_predict(req: PredictReq):
+    # symbol 우선, 없으면 ticker, 모두 없으면 에러
+    sym = (req.symbol or req.ticker or "").strip()
+    if not sym:
+        return {"symbol": None, "signal": "HOLD", "error": "predict_failed:ValueError: empty symbol"}
     try:
-        return predict(req.ticker.strip())
+        out = predict(sym)
+        if isinstance(out, dict) and not out.get("symbol"):
+            out["symbol"] = sym
+        return out
     except Exception as e:
-        return {"symbol": req.ticker, "signal": "HOLD", "error": f"predict_failed:{type(e).__name__}: {e}"}
+        return {"symbol": sym, "signal": "HOLD", "error": f"predict_failed:{type(e).__name__}: {e}"}
 
 @app.post("/ibsummary")
 def ib_summary(req: SummaryReq):
     try:
+        # ratios만 넘겨도 summarize_ib가 포맷을 알아서 처리
         ratios = compute_ratios_for_ticker(req.ticker).get("ratios", {})
         ana = {"core": {"ratios": ratios}}
         p = predict(req.ticker.strip())
@@ -76,9 +112,41 @@ def ib_summary(req: SummaryReq):
 
 @app.post("/media")
 def media(req: MediaReq):
+    """
+    news_agent가 있으면 그걸 사용하고, 없으면 yfinance 뉴스로 폴백.
+    서버에서 summarize_media로 간단 요약(note)까지 붙여줌.
+    """
     try:
-        company = req.company or compute_ratios_for_ticker(req.ticker).get("company")
-        na = get_news_analysis(req.ticker.strip(), req.language, company_name=company, k=40)
+        # 회사명 보강 (없어도 동작)
+        company = req.company
+        if not company:
+            try:
+                meta = compute_ratios_for_ticker(req.ticker)
+                company = meta.get("company")
+            except Exception:
+                company = None
+
+        if _HAVE_NEWS_AGENT:
+            na = get_news_analysis(req.ticker.strip(), req.language, company_name=company, k=40)
+        else:
+            # 폴백: yfinance 뉴스
+            try:
+                arr = (getattr(yf.Ticker(req.ticker.strip()), "news", []) or [])[:40]
+            except Exception:
+                arr = []
+            na = {
+                "articles": arr,
+                "overall": {"label": "mixed", "score": 0.0, "impact_score": 0.0, "pos": 0, "neg": 0, "neu": len(arr)},
+            }
+
+        # 헤드라인 요약만 생성 (IB 요약이 섞이지 않도록 summarize_media가 리스트/기사만 요약)
+        try:
+            note = summarize_media(na, language=req.language)
+            if isinstance(na, dict):
+                na["note"] = note
+        except Exception:
+            pass
+
         return {"news_analysis": na}
     except Exception as e:
         return {"news_analysis": None, "error": f"media_failed:{type(e).__name__}: {e}"}
