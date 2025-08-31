@@ -314,3 +314,4 @@ def get_news_analysis(ticker: str, language: str, company_name: Optional[str] = 
     return na
 
 __all__ = ["get_news_analysis"]
+
