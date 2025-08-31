@@ -4,14 +4,15 @@ from typing import Dict, Optional, List
 import pandas as pd
 import yfinance as yf
 
-# ✅ llm_core 만 선택적으로 사용 (이 파일 자체는 LLM 비의존)
+# ✅ llm_core 선택적 사용 (이 파일은 LLM 비의존적으로 동작)
 try:
-    from llm_core import summarize_media as _summarize_media_for_narr  # headlines 요약용(미사용)
-    from llm_core import summarize_ib as _summarize_ib                 # IB 톤 요약 재활용
+    from llm_core import summarize_narrative as _llm_narrative
+    from llm_core import model_ready as _llm_ready
     _HAVE_LLM_CORE = True
 except Exception:
     _HAVE_LLM_CORE = False
-    _summarize_ib = None
+    _llm_narrative = None
+    def _llm_ready() -> bool: return False  # type: ignore
 
 # ---------------- yfinance helpers ----------------
 def _safe_info(t: yf.Ticker) -> Dict:
@@ -188,7 +189,6 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
 
 # ---------------- ticker picker ----------------
 def pick_valid_ticker(user_query: str) -> str:
-    import re
     tokens = re.findall(r"[A-Za-z0-9\.\-]{1,15}", (user_query or "").upper())
     candidates = [t for t in tokens if any(c.isalpha() for c in t)]
     if not candidates:
@@ -203,7 +203,7 @@ def pick_valid_ticker(user_query: str) -> str:
             continue
     return candidates[0].strip()
 
-# ---------------- Narrative(LLM 없이도 생성) ----------------
+# ---------------- Narrative (LLM → 폴백) ----------------
 def _fallback_narrative(payload: Dict, language: str, business_summary: Optional[str]) -> str:
     ask_ko = language.lower().startswith("ko")
     r = payload.get("ratios", {}) or {}
@@ -246,8 +246,15 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
 def _make_narrative(payload_core: Dict, language: str, business_summary: Optional[str], want: bool) -> str:
     if not want:
         return ""
-    # IB 톤 요약을 재활용해서 2~3문장 summary 로 좁혀도 되지만,
-    # 프론트 Narrative는 섹션형이라 fallback 텍스트가 더 안정적.
+    # 1) LLM 가능하면 LLM Markdown 생성
+    if _HAVE_LLM_CORE and _llm_ready() and callable(_llm_narrative):
+        try:
+            md = _llm_narrative(payload_core, language, business_summary)  # type: ignore
+            if isinstance(md, str) and md.strip():
+                return md
+        except Exception:
+            pass
+    # 2) 실패/미설정 시 폴백
     try:
         return _fallback_narrative(payload_core, language, business_summary)
     except Exception:
@@ -269,8 +276,11 @@ def run_query(user_query: str, language: str = "ko", want_narrative: bool = True
             "ratios": payload["ratios"],
         },
         "notes": payload.get("notes"),
-        "explanation": explanation,
-        "meta": {"source": "Yahoo Finance"},
+        "explanation": explanation,   # Markdown(LLM) 또는 간단 텍스트(폴백)
+        "meta": {
+            "source": "Yahoo Finance",
+            "narrative_llm": bool(_HAVE_LLM_CORE and _llm_ready())
+        },
     }
 
 __all__ = ["run_query", "pick_valid_ticker", "compute_ratios_for_ticker"]
