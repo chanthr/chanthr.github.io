@@ -22,18 +22,15 @@ app.add_middleware(
 )
 
 # GitHub Pages / 로컬 개발 도메인 허용
-_allowed = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173,https://chanthr.github.io"
-)
-ALLOWED_ORIGINS = [o.strip() for o in _allowed.split(",") if o.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["https://chanthr.github.io"],      # 운영: 이 한 줄만 두고
+    #allow_origin_regex=r"https://.*\.github\.io$",    # 또는 깃헙페이지 전체 허용
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=False,   # 쿠키 안 쓰면 False 권장
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 # ---------- Schemas ----------
