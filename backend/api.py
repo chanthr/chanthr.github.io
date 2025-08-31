@@ -14,7 +14,7 @@ from predict_agent import predict
 from news_agent import get_news_analysis
 
 app = FastAPI(title="LSA Agent API", version="1.0")
-app.add_middleware(
+app.add_middleware( 
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
