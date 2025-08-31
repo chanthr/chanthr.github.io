@@ -138,7 +138,7 @@ def summarize_ib(ana: dict, pred: Optional[dict], language: str) -> str:
 
 
 # ── 뉴스 헤드라인 요약(LLM → 폴백)
-def _summarize_headlines(items: List[Dict], language: str = "ko") -> str:
+def _summarize_headlines(items: List[Dict], language: str) -> str:
     titles = [str(it.get("title", "")).strip() for it in (items or []) if it.get("title")]
     titles = [t for t in titles if t]
     if not titles:
