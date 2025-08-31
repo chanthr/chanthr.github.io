@@ -70,7 +70,7 @@ function renderNewsAnalysis(na, lang = 'ko') {
   return `
     <div class="ratio">
       <div class="row align-center">
-        <strong>${lang.startsWith('ko') ? '언론 톤' : 'Media sentiment'}</strong>
+        <strong>${lang.startsWith('ko') ? '언론 톤' : 'Media Sentiment'}</strong>
         <span class="badge ${badgeCls}" style="margin-left:8px;">${lblText}</span>
       </div>
       <div class="mt-6 muted">
