@@ -295,8 +295,15 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         "meta": {"source": "Yahoo Finance"}
     }
 
+# ───────── LLM status (finance agent는 LLM 안씀) ─────────
+def get_llm_status() -> dict:
+    """Frontend /health 용. 재무엔진은 LLM을 쓰지 않으므로 'none' 리턴."""
+    return {"provider": "none", "ready": False, "reason": "finance_agent has no LLM"}
+
+# 
 __all__ = [
     "run_query",
     "pick_valid_ticker",
     "compute_ratios_for_ticker",
+    "get_llm_status",
 ]
