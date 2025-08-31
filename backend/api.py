@@ -14,18 +14,19 @@ from news_agent import get_news_analysis
 
 app = FastAPI(title="LSA Agent API", version="1.0")
 
-# -------- CORS: 한 번만! --------
-# 운영에서는 환경변수로 좁혀 쓰는 걸 추천: CORS_ORIGINS="https://chanthr.github.io"
-_allowed = os.getenv(CORS_ORIGINS="https://chanthr.github.io")
-ALLOWED_ORIGINS = [o.strip() for o in _allowed.split(",") if o.strip()]
+# -------- CORS -------- #
+origins_env = os.getenv("CORS_ORIGINS", "https://chanthr.github.io,http://localhost:5173")
+ALLOWED_ORIGINS = [o.strip() for o in origins_env.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,    # 필요시 allow_origin_regex=r"https://.*\.github\.io$"
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,       
+    # 필요 시 전체 GitHub Pages 허용:
+    # allow_origin_regex=r"https://.*\.github\.io$",
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
-    allow_credentials=False,
     expose_headers=["*"],
+    allow_credentials=False,             # "*" 와 함께 쓸 거면 반드시 False 유지
     max_age=86400,
 )
 
