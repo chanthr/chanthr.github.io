@@ -159,15 +159,31 @@ def summarize_media(
     language: str = "ko"
 ) -> str:
     """
-    두 형태 모두 지원:
-      1) summarize_media(items: List[Dict], language='ko')  -> 뉴스 헤드라인 요약
-      2) summarize_media(analysis: dict, pred: dict, language='ko') -> IB 톤 요약
+    지원 형태
+      1) summarize_media(items: List[Dict], language='ko')
+         -> 기사 리스트/헤드라인 리스트를 받아 미디어 요약
+      2) summarize_media(analysis: dict, pred: dict, language='ko')
+         -> (진짜로) 재무분석 dict일 때만 IB 톤 요약
     """
+    # 1) 이미 리스트면 그대로 헤드라인 요약
     if isinstance(arg1, list):
         return _summarize_headlines(arg1, language=language)
-    if isinstance(arg1, dict):
-        return summarize_ib(arg1, pred, language)
-    return ""
 
+    # 2) 딕셔너리면 '미디어 분석'으로 보이는 키들에서 헤드라인 추출 시도
+    if isinstance(arg1, dict):
+        candidates = []
+        for key in ("headlines", "titles", "items", "articles", "top"):
+            if key in arg1 and isinstance(arg1[key], list):
+                candidates = arg1[key]
+                break
+        # 기사/헤드라인 형태면 미디어 요약으로 처리
+        if candidates:
+            return _summarize_headlines(candidates, language=language)
+
+        # 그 외에는 '재무분석'으로 간주 → IB 요약
+        return summarize_ib(arg1, pred, language)
+
+    # 알 수 없는 타입
+    return ""
 
 __all__ = ["get_model_status", "summarize_ib", "summarize_media"]
