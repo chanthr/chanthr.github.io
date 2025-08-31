@@ -174,6 +174,7 @@ def _summarize_headlines(items: List[Dict], language: str = "auto") -> str:
                 ("system",
                  "You are an investment-banking equity analyst. Write in {lang}. "
                  "Summarize these headlines into 2 concise sentences focusing on drivers and risks. "
+                 "Please do not end the summary in the middle of sentence. It should end fully."
                  "Avoid fluff; plain text only."),
                 ("human", "HEADLINES:\n{blob}")
             ])
