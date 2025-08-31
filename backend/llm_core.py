@@ -37,7 +37,6 @@ def _build() -> None:
         return
 
     key = (os.getenv("GROQ_API_KEY") or "").strip()
-    # ✅ 기본값을 최신 권장인 llama-3.1-8b-instant 로 설정
     name = _normalize_model_name(os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"))
 
     if not key:
@@ -45,7 +44,7 @@ def _build() -> None:
         return
 
     try:
-        # LangChain 버전에 따라 인자명이 다른 경우가 있어 이중 시도
+        # LangChain 버전에 따라 인자명이 다를 수 있어 이중 시도
         try:
             _MODEL = ChatGroq(model=name, api_key=key, temperature=0.2)  # 최신
         except TypeError:
@@ -61,6 +60,16 @@ _build()
 def get_model_status() -> dict:
     """헬스 체크에서 쓰기 좋은 간단 상태."""
     return {"provider": _PROVIDER, "ready": bool(_MODEL), "reason": _REASON}
+
+
+def model_ready() -> bool:
+    """외부에서 'LLM 사용 가능?' 간단 확인."""
+    return _MODEL is not None
+
+
+def _norm_lang(language: str) -> str:
+    s = (language or "").strip().lower()
+    return "ko" if s.startswith("ko") else "en"
 
 
 # ── 규칙 기반 폴백 요약 (절대 예외 X)
@@ -81,7 +90,7 @@ def _rule_summary(ana: dict, pred: Optional[dict], language: str) -> str:
         score(band(S.get("interest_coverage"))),
     ])
 
-    if language.lower().startswith("ko"):
+    if _norm_lang(language) == "ko":
         level = "매우 양호" if total >= 9 else "양호" if total >= 6 else "보통" if total >= 3 else "취약"
         tip = ""
         try:
@@ -108,15 +117,17 @@ def summarize_ib(ana: dict, pred: Optional[dict], language: str) -> str:
 
     prompt = ChatPromptTemplate.from_messages([  # type: ignore[attr-defined]
         ("system",
-         "You are an investment-banking equity analyst. Write in {lang}. "
-         "Return 2–3 sentences covering liquidity, leverage/solvency, and optionally a 1-day signal. Plain text only."),
+         "You are a senior equity research analyst. Write in {lang}. "
+         "Deliver 2–3 concise sentences covering liquidity, leverage/solvency, and an optional 1-day signal if provided. "
+         "Start directly with the insight (no fillers like 'Based on the provided data'). "
+         "Avoid markdown and bullets; plain prose only."),
         ("human", "DATA(JSON): {blob}")
     ])
     chain = prompt | _MODEL | StrOutputParser()  # type: ignore[operator]
 
     try:
         txt = chain.invoke({
-            "lang": "Korean" if language.lower().startswith("ko") else "English",
+            "lang": "Korean" if _norm_lang(language) == "ko" else "English",
             "blob": json.dumps({"analysis": ana, "prediction": pred}, ensure_ascii=False)
         })
         txt = re.sub(r"\s+", " ", str(txt)).strip() or _rule_summary(ana, pred, language)
@@ -141,7 +152,7 @@ def _summarize_headlines(items: List[Dict], language: str = "ko") -> str:
                 ("human", "HEADLINES:\n{blob}")
             ])
             chain = prompt | _MODEL | StrOutputParser()  # type: ignore[operator]
-            lang = "Korean" if language.lower().startswith("ko") else "English"
+            lang = "Korean" if _norm_lang(language) == "ko" else "English"
             blob = "\n".join(f"- {t}" for t in titles[:12])
             txt = chain.invoke({"lang": lang, "blob": blob})
             return re.sub(r"\s+", " ", str(txt)).strip()[:600]
@@ -165,28 +176,23 @@ def summarize_media(
       2) summarize_media(analysis: dict, pred: dict, language='ko')
          -> (진짜로) 재무분석 dict일 때만 IB 톤 요약
     """
-    # 1) 이미 리스트면 그대로 헤드라인 요약
     if isinstance(arg1, list):
         return _summarize_headlines(arg1, language=language)
 
-    # 2) 딕셔너리면 '미디어 분석'으로 보이는 키들에서 헤드라인 추출 시도
     if isinstance(arg1, dict):
         candidates = []
         for key in ("headlines", "titles", "items", "articles", "top"):
             if key in arg1 and isinstance(arg1[key], list):
                 candidates = arg1[key]
                 break
-        # 기사/헤드라인 형태면 미디어 요약으로 처리
         if candidates:
             return _summarize_headlines(candidates, language=language)
-
-        # 그 외에는 '재무분석'으로 간주 → IB 요약
         return summarize_ib(arg1, pred, language)
 
-    # 알 수 없는 타입
     return ""
 
-# === Narrative 관련 문제 해결 == #
+
+# ── 내러티브: LLM → 실패 시 Markdown 폴백
 def _fallback_narrative_markdown(payload: Dict, language: str, business_summary: Optional[str]) -> str:
     ask_lang = "ko" if _norm_lang(language) == "ko" else "en"
     r = (payload or {}).get("ratios", {}) or {}
@@ -209,13 +215,12 @@ def _fallback_narrative_markdown(payload: Dict, language: str, business_summary:
         lines.append(f"- {fmt(sol.get('debt_to_equity'),'Debt-to-Equity')}")
         lines.append(f"- {fmt(sol.get('debt_ratio'),'Debt Ratio')}")
         lines.append(f"- {fmt(sol.get('interest_coverage'),'Interest Coverage')}")
-        # 간단 평
         bands = [ (liq.get("current_ratio") or {}).get("band","N/A"),
                   (liq.get("quick_ratio") or {}).get("band","N/A"),
                   (liq.get("cash_ratio") or {}).get("band","N/A"),
                   (sol.get("debt_to_equity") or {}).get("band","N/A"),
                   (sol.get("debt_ratio") or {}).get("band","N/A"),
-                  (sol.get("interest_coverage") or {}).get("band","N/A"), ]
+                  (sol.get("interest_coverage") or {}).get("band","N/A") ]
         score = sum({"Strong":2,"Fair":1}.get(b,0) for b in bands)
         verdict = "매우 양호" if score>=9 else "양호" if score>=6 else "보통" if score>=3 else "취약"
         lines.append("\n### ✅ 종합 평가 / Overall financial health")
@@ -240,7 +245,7 @@ def _fallback_narrative_markdown(payload: Dict, language: str, business_summary:
                   (liq.get("cash_ratio") or {}).get("band","N/A"),
                   (sol.get("debt_to_equity") or {}).get("band","N/A"),
                   (sol.get("debt_ratio") or {}).get("band","N/A"),
-                  (sol.get("interest_coverage") or {}).get("band","N/A"), ]
+                  (sol.get("interest_coverage") or {}).get("band","N/A") ]
         score = sum({"Strong":2,"Fair":1}.get(b,0) for b in bands)
         verdict = "excellent" if score>=9 else "good" if score>=6 else "average" if score>=3 else "weak"
         lines.append("\n### ✅ Overall financial health")
@@ -248,6 +253,7 @@ def _fallback_narrative_markdown(payload: Dict, language: str, business_summary:
         lines.append("\n### ℹ️ Takeaway")
         lines.append("Ratios indicate a resilient balance sheet.")
         return "\n".join(lines)
+
 
 def summarize_narrative(payload: Dict, language: str = "ko", business_summary: Optional[str] = None) -> str:
     """
@@ -282,14 +288,25 @@ def summarize_narrative(payload: Dict, language: str = "ko", business_summary: O
         chain = prompt | _MODEL | StrOutputParser()  # type: ignore[operator]
         ask_lang = "Korean" if lang == "ko" else "English"
         blob = json.dumps((payload or {}).get("ratios", {}), ensure_ascii=False)
-        txt = chain.invoke({"ask_lang": ask_lang, "business_summary": business_summary or "(not available)", "ratios_json": blob})
+        txt = chain.invoke({
+            "ask_lang": ask_lang,
+            "business_summary": business_summary or "(not available)",
+            "ratios_json": blob
+        })
         txt = re.sub(r"\s+\n", "\n", re.sub(r"\s+", " ", str(txt))).strip()
-        # LLM이 엉뚱한 포맷을 주면 폴백
         return txt if "###" in txt else _fallback_narrative_markdown(payload, lang, business_summary)
     except Exception:
         return _fallback_narrative_markdown(payload, lang, business_summary)
 
 
-__all__ = ["get_model_status", "summarize_ib", "summarize_media", "summarize_narrative"]
+# 호환용 별칭: 과거 gen_narrative 시그니처 지원
+def gen_narrative(ratios_payload: Dict, language: str, business_summary: Optional[str]) -> str:
+    payload = {"ratios": ratios_payload}
+    return summarize_narrative(payload, language, business_summary)
 
-__all__ = ["get_model_status", "summarize_ib", "summarize_media"]
+
+__all__ = [
+    "get_model_status", "model_ready",
+    "summarize_ib", "summarize_media",
+    "summarize_narrative", "gen_narrative",
+]
