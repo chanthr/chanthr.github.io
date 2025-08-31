@@ -186,4 +186,110 @@ def summarize_media(
     # 알 수 없는 타입
     return ""
 
+# === Narrative 관련 문제 해결 == #
+def _fallback_narrative_markdown(payload: Dict, language: str, business_summary: Optional[str]) -> str:
+    ask_lang = "ko" if _norm_lang(language) == "ko" else "en"
+    r = (payload or {}).get("ratios", {}) or {}
+    liq, sol = r.get("Liquidity", {}) or {}, r.get("Solvency", {}) or {}
+
+    def fmt(node, name):
+        v = (node or {}).get("value")
+        b = (node or {}).get("band", "N/A")
+        return f"{name}: {'N/A' if v is None else f'{float(v):.2f}'} ({b})"
+
+    if ask_lang == "ko":
+        lines = []
+        lines.append("### 회사 개요 / Company overview")
+        lines.append(business_summary or "회사 소개 정보를 가져오지 못했습니다.")
+        lines.append("\n### 💧 유동성 / Liquidity")
+        lines.append(f"- {fmt(liq.get('current_ratio'),'Current Ratio')}")
+        lines.append(f"- {fmt(liq.get('quick_ratio'),'Quick Ratio')}")
+        lines.append(f"- {fmt(liq.get('cash_ratio'),'Cash Ratio')}")
+        lines.append("\n### 🛡️ 건전성 / Solvency")
+        lines.append(f"- {fmt(sol.get('debt_to_equity'),'Debt-to-Equity')}")
+        lines.append(f"- {fmt(sol.get('debt_ratio'),'Debt Ratio')}")
+        lines.append(f"- {fmt(sol.get('interest_coverage'),'Interest Coverage')}")
+        # 간단 평
+        bands = [ (liq.get("current_ratio") or {}).get("band","N/A"),
+                  (liq.get("quick_ratio") or {}).get("band","N/A"),
+                  (liq.get("cash_ratio") or {}).get("band","N/A"),
+                  (sol.get("debt_to_equity") or {}).get("band","N/A"),
+                  (sol.get("debt_ratio") or {}).get("band","N/A"),
+                  (sol.get("interest_coverage") or {}).get("band","N/A"), ]
+        score = sum({"Strong":2,"Fair":1}.get(b,0) for b in bands)
+        verdict = "매우 양호" if score>=9 else "양호" if score>=6 else "보통" if score>=3 else "취약"
+        lines.append("\n### ✅ 종합 평가 / Overall financial health")
+        lines.append(f"유동성/건전성 지표를 종합하면 재무건전성은 **{verdict}**한 편입니다.")
+        lines.append("\n### ℹ️ 핵심 요약 / Takeaway")
+        lines.append("핵심 지표 기반으로 재무 체력이 무난합니다.")
+        return "\n".join(lines)
+    else:
+        lines = []
+        lines.append("### Company overview")
+        lines.append(business_summary or "Business description not available.")
+        lines.append("\n### 💧 Liquidity")
+        lines.append(f"- {fmt(liq.get('current_ratio'),'Current Ratio')}")
+        lines.append(f"- {fmt(liq.get('quick_ratio'),'Quick Ratio')}")
+        lines.append(f"- {fmt(liq.get('cash_ratio'),'Cash Ratio')}")
+        lines.append("\n### 🛡️ Solvency")
+        lines.append(f"- {fmt(sol.get('debt_to_equity'),'Debt-to-Equity')}")
+        lines.append(f"- {fmt(sol.get('debt_ratio'),'Debt Ratio')}")
+        lines.append(f"- {fmt(sol.get('interest_coverage'),'Interest Coverage')}")
+        bands = [ (liq.get("current_ratio") or {}).get("band","N/A"),
+                  (liq.get("quick_ratio") or {}).get("band","N/A"),
+                  (liq.get("cash_ratio") or {}).get("band","N/A"),
+                  (sol.get("debt_to_equity") or {}).get("band","N/A"),
+                  (sol.get("debt_ratio") or {}).get("band","N/A"),
+                  (sol.get("interest_coverage") or {}).get("band","N/A"), ]
+        score = sum({"Strong":2,"Fair":1}.get(b,0) for b in bands)
+        verdict = "excellent" if score>=9 else "good" if score>=6 else "average" if score>=3 else "weak"
+        lines.append("\n### ✅ Overall financial health")
+        lines.append(f"Overall balance-sheet quality appears **{verdict}**.")
+        lines.append("\n### ℹ️ Takeaway")
+        lines.append("Ratios indicate a resilient balance sheet.")
+        return "\n".join(lines)
+
+def summarize_narrative(payload: Dict, language: str = "ko", business_summary: Optional[str] = None) -> str:
+    """
+    Narrative(Markdown) 생성: LLM 있으면 LLM, 없으면 폴백.
+    payload = finance_agent.compute_ratios_for_ticker(...) 결과(dict 형태; ratios, company 등 포함)
+    """
+    lang = _norm_lang(language)
+    if _MODEL is None:
+        return _fallback_narrative_markdown(payload, lang, business_summary)
+
+    try:
+        prompt = ChatPromptTemplate.from_messages([  # type: ignore[attr-defined]
+            ("system",
+             "You are a financial analysis assistant. Write in {ask_lang}. "
+             "Return Markdown using this EXACT template:\n\n"
+             "### 회사 개요 / Company overview\n"
+             "{business_summary}\n\n"
+             "### 💧 유동성 / Liquidity\n"
+             "- Current Ratio: <value> (<band>)\n"
+             "- Quick Ratio: <value> (<band>)\n"
+             "- Cash Ratio: <value> (<band>)\n\n"
+             "### 🛡️ 건전성 / Solvency\n"
+             "- Debt-to-Equity: <value> (<band>)\n"
+             "- Debt Ratio: <value> (<band>)\n"
+             "- Interest Coverage: <value> (<band>)\n\n"
+             "### ✅ 종합 평가 / Overall financial health\n"
+             "Provide a 1–2 sentence judgment combining liquidity and solvency.\n\n"
+             "### ℹ️ 핵심 요약 / Takeaway\n"
+             "One short, plain-language takeaway."),
+            ("human", "RATIOS_JSON:\n{ratios_json}")
+        ])
+        chain = prompt | _MODEL | StrOutputParser()  # type: ignore[operator]
+        ask_lang = "Korean" if lang == "ko" else "English"
+        blob = json.dumps((payload or {}).get("ratios", {}), ensure_ascii=False)
+        txt = chain.invoke({"ask_lang": ask_lang, "business_summary": business_summary or "(not available)", "ratios_json": blob})
+        txt = re.sub(r"\s+\n", "\n", re.sub(r"\s+", " ", str(txt))).strip()
+        # LLM이 엉뚱한 포맷을 주면 폴백
+        return txt if "###" in txt else _fallback_narrative_markdown(payload, lang, business_summary)
+    except Exception:
+        return _fallback_narrative_markdown(payload, lang, business_summary)
+
+
+__all__ = ["get_model_status", "summarize_ib", "summarize_media", "summarize_narrative"]
+
 __all__ = ["get_model_status", "summarize_ib", "summarize_media"]
