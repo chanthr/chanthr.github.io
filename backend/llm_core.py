@@ -62,15 +62,15 @@ def get_model_status() -> dict:
     return {"provider": _PROVIDER, "ready": bool(_MODEL), "reason": _REASON}
 
 
+# 버그 수정
+def _norm_lang(s: str) -> str:
+    try:
+        return "ko" if str(s or "").lower().startswith("ko") else "en"
+    except Exception:
+        return "en"
+
 def model_ready() -> bool:
-    """외부에서 'LLM 사용 가능?' 간단 확인."""
-    return _MODEL is not None
-
-
-def _norm_lang(language: str) -> str:
-    s = (language or "").strip().lower()
-    return "ko" if s.startswith("ko") else "en"
-
+    return bool(_MODEL)
 
 # ── 규칙 기반 폴백 요약 (절대 예외 X)
 def _rule_summary(ana: dict, pred: Optional[dict], language: str) -> str:
@@ -306,7 +306,9 @@ def gen_narrative(ratios_payload: Dict, language: str, business_summary: Optiona
 
 
 __all__ = [
-    "get_model_status", "model_ready",
-    "summarize_ib", "summarize_media",
-    "summarize_narrative", "gen_narrative",
+    "get_model_status",
+    "model_ready",
+    "summarize_ib",
+    "summarize_media",
+    "summarize_narrative",
 ]
