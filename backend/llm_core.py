@@ -257,18 +257,67 @@ def _fallback_narrative_markdown(payload: Dict, language: str, business_summary:
 
 def summarize_narrative(payload: Dict, language: str = "ko", business_summary: Optional[str] = None) -> str:
     """
-    Narrative(Markdown) 생성: LLM 있으면 LLM, 없으면 폴백.
-    payload = finance_agent.compute_ratios_for_ticker(...) 결과(dict 형태; ratios, company 등 포함)
+    Narrative(Markdown) 생성: LLM 성공 시 섹션/불릿 그대로, 실패 시 동일 템플릿 폴백.
     """
     lang = _norm_lang(language)
+
+    # 폴백 빌더 (Markdown)
+    def _fallback(payload: Dict, business_summary: Optional[str]) -> str:
+        r = (payload or {}).get("ratios", {}) or {}
+        L, S = r.get("Liquidity", {}) or {}, r.get("Solvency", {}) or {}
+
+        def fmt(node, name):
+            v = (node or {}).get("value")
+            b = (node or {}).get("band", "N/A")
+            return f"- {name}: {'N/A' if v is None else f'{float(v):.2f}'} ({b})"
+
+        bs = _shrink_summary(business_summary, lang, 35)
+        if lang == "ko":
+            lines = [
+                "### 회사 개요 / Company overview",
+                bs,
+                "",
+                "### 💧 유동성 / Liquidity",
+                fmt(L.get("current_ratio"), "Current Ratio"),
+                fmt(L.get("quick_ratio"), "Quick Ratio"),
+                fmt(L.get("cash_ratio"), "Cash Ratio"),
+                "",
+                "### 🛡️ 건전성 / Solvency",
+                fmt(S.get("debt_to_equity"), "Debt-to-Equity"),
+                fmt(S.get("debt_ratio"), "Debt Ratio"),
+                fmt(S.get("interest_coverage"), "Interest Coverage"),
+            ]
+        else:
+            lines = [
+                "### Company overview",
+                bs,
+                "",
+                "### 💧 Liquidity",
+                fmt(L.get("current_ratio"), "Current Ratio"),
+                fmt(L.get("quick_ratio"), "Quick Ratio"),
+                fmt(L.get("cash_ratio"), "Cash Ratio"),
+                "",
+                "### 🛡️ Solvency",
+                fmt(S.get("debt_to_equity"), "Debt-to-Equity"),
+                fmt(S.get("debt_ratio"), "Debt Ratio"),
+                fmt(S.get("interest_coverage"), "Interest Coverage"),
+            ]
+        return "\n".join(lines)
+
+    # LLM이 없으면 즉시 폴백
     if _MODEL is None:
-        return _fallback_narrative_markdown(payload, lang, business_summary)
+        return _fallback(payload, business_summary)
 
     try:
         prompt = ChatPromptTemplate.from_messages([  # type: ignore[attr-defined]
             ("system",
-             "You are a financial analysis assistant. Write in {ask_lang}. "
-             "Return Markdown using this EXACT template:\n\n"
+             "You are a senior equity analyst. Write in {ask_lang}. "
+             "Return **Markdown** using EXACTLY this structure and preserve line breaks. "
+             "Keep the company overview to MAX 35 words. "
+             "For metrics, print each on its own bullet line and round values to two decimals. "
+             "If a value is missing, print 'N/A' for <value> but still keep the band in parentheses. "
+             "Do not merge headings into one line. No extra sections."),
+            ("human",
              "### 회사 개요 / Company overview\n"
              "{business_summary}\n\n"
              "### 💧 유동성 / Liquidity\n"
@@ -279,25 +328,29 @@ def summarize_narrative(payload: Dict, language: str = "ko", business_summary: O
              "- Debt-to-Equity: <value> (<band>)\n"
              "- Debt Ratio: <value> (<band>)\n"
              "- Interest Coverage: <value> (<band>)\n\n"
-             "### ✅ 종합 평가 / Overall financial health\n"
-             "Provide a 1–2 sentence judgment combining liquidity and solvency.\n\n"
-             "### ℹ️ 핵심 요약 / Takeaway\n"
-             "One short, plain-language takeaway."),
-            ("human", "RATIOS_JSON:\n{ratios_json}")
+             "DATA(JSON):\n{blob}")
         ])
         chain = prompt | _MODEL | StrOutputParser()  # type: ignore[operator]
-        ask_lang = "Korean" if lang == "ko" else "English"
-        blob = json.dumps((payload or {}).get("ratios", {}), ensure_ascii=False)
-        txt = chain.invoke({
-            "ask_lang": ask_lang,
-            "business_summary": business_summary or "(not available)",
-            "ratios_json": blob
-        })
-        txt = re.sub(r"\s+\n", "\n", re.sub(r"\s+", " ", str(txt))).strip()
-        return txt if "###" in txt else _fallback_narrative_markdown(payload, lang, business_summary)
-    except Exception:
-        return _fallback_narrative_markdown(payload, lang, business_summary)
 
+        ask_lang = "Korean" if lang == "ko" else "English"
+        bs_short = _shrink_summary(business_summary, lang, 35)
+        blob = json.dumps((payload or {}).get("ratios", {}), ensure_ascii=False)
+
+        md = chain.invoke({
+            "ask_lang": ask_lang,
+            "business_summary": bs_short,
+            "blob": blob
+        })
+
+        # 🔧 후처리: 코드펜스 제거 + 줄바꿈 보존 + 트레일링 스페이스만 정리
+        md = str(md).strip()
+        md = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", md, flags=re.S)  # fenced code 제거
+        md = re.sub(r"[ \t]+\n", "\n", md)  # 줄 끝 공백만 제거
+
+        # LLM이 양식 어기면 폴백
+        return md if "###" in md else _fallback(payload, business_summary)
+    except Exception:
+        return _fallback(payload, business_summary)
 
 # 호환용 별칭: 과거 gen_narrative 시그니처 지원
 def gen_narrative(ratios_payload: Dict, language: str, business_summary: Optional[str]) -> str:
