@@ -118,7 +118,8 @@ def summarize_ib(ana: dict, pred: Optional[dict], language: str) -> str:
     prompt = ChatPromptTemplate.from_messages([  # type: ignore[attr-defined]
         ("system",
          "You are a senior equity research analyst. Write in {lang}. "
-         "Deliver 2–3 concise sentences covering liquidity, leverage/solvency, and an optional 1-day signal if provided. "
+         "Deliver 4-5 concise sentences covering liquidity, leverage/solvency. "
+         "Please do research online and only take data from Yahoo Finance"
          "Start directly with the insight (no fillers like 'Based on the provided data'). "
          "Avoid markdown and bullets; plain prose only."),
         ("human", "DATA(JSON): {blob}")
@@ -148,7 +149,9 @@ def _summarize_headlines(items: List[Dict], language: str = "ko") -> str:
             prompt = ChatPromptTemplate.from_messages([  # type: ignore[attr-defined]
                 ("system",
                  "You are an investment-banking equity analyst. Write in {lang}. "
-                 "Summarize these headlines into 2–3 concise sentences focusing on drivers/risks. Plain text only."),
+                 "Please don't end the sentence in the middle of talking."
+                 "Please only take the keywords that can actually impact the business"
+                 "Summarize these headlines into 2 concise sentences focusing on drivers/risks. Plain text only."),
                 ("human", "HEADLINES:\n{blob}")
             ])
             chain = prompt | _MODEL | StrOutputParser()  # type: ignore[operator]
