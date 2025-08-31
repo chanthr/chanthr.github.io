@@ -4,6 +4,7 @@ from typing import Dict, Optional, List
 
 import pandas as pd
 import yfinance as yf
+from llm_core import summarize_narrative
 
 # ───────── yfinance helpers ─────────
 def _safe_info(t: yf.Ticker) -> Dict:
@@ -269,6 +270,8 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
 def run_query(user_query: str, language: str = "ko") -> dict:
     ticker = pick_valid_ticker(user_query)
     payload = compute_ratios_for_ticker(ticker)
+
+    # 회사 개요
     business_summary = _get_company_summary(payload["ticker"])
 
     ratios = payload.get("ratios") or {}
@@ -281,7 +284,17 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         payload["notes"] = f"'{ticker}' 재무제표를 찾지 못했습니다. 거래소 접미사(.KS, .T, .HK 등) 확인."
         explanation = "재무제표가 비어 있어 평가를 생성하지 않았습니다."
     else:
-        explanation = _fallback_narrative(payload, language, business_summary)
+        # ✅ 핵심 변경: llm_core가 LLM 또는 폴백으로 Narrative 생성
+        explanation = summarize_narrative(
+            {
+                "ratios": payload["ratios"],
+                "company": payload.get("company"),
+                "ticker": payload.get("ticker"),
+                "price": payload.get("price"),
+            },
+            language=language,
+            business_summary=business_summary
+        )
 
     return {
         "core": {
@@ -292,7 +305,7 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         },
         "notes": payload.get("notes"),
         "explanation": explanation,
-        "meta": {"source": "Yahoo Finance"}
+        "meta": {"source": "Yahoo Finance"}  # LLM 여부 표시는 /health로 충분
     }
 
 # ───────── LLM status (finance agent는 LLM 안씀) ─────────
