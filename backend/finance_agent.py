@@ -1,12 +1,19 @@
 # finance_agent.py
 import os, re, json
 from typing import Dict, Optional, List
-
 import pandas as pd
 import yfinance as yf
-from llm_core import summarize_narrative
 
-# ───────── yfinance helpers ─────────
+# ✅ llm_core 만 선택적으로 사용 (이 파일 자체는 LLM 비의존)
+try:
+    from llm_core import summarize_media as _summarize_media_for_narr  # headlines 요약용(미사용)
+    from llm_core import summarize_ib as _summarize_ib                 # IB 톤 요약 재활용
+    _HAVE_LLM_CORE = True
+except Exception:
+    _HAVE_LLM_CORE = False
+    _summarize_ib = None
+
+# ---------------- yfinance helpers ----------------
 def _safe_info(t: yf.Ticker) -> Dict:
     try:
         info = t.get_info() if hasattr(t, "get_info") else (getattr(t, "info", {}) or {})
@@ -32,9 +39,9 @@ def _latest_value_from_df(df: pd.DataFrame, aliases: List[str]) -> Optional[floa
         cols_sorted = list(df.columns)
     for alias in aliases:
         alias_l = alias.strip().lower()
-        for row_lower, row_orig in lower_index_map.items():
-            if alias_l in row_lower:
-                series = df.loc[row_orig]
+        for lower, orig in lower_index_map.items():
+            if alias_l in lower:
+                series = df.loc[orig]
                 for c in cols_sorted:
                     val = series.get(c, None)
                     if pd.notnull(val):
@@ -56,7 +63,7 @@ def _safe_div(a: Optional[float], b: Optional[float]) -> Optional[float]:
     except Exception:
         return None
 
-# ───────── 핵심 계산 ─────────
+# ---------------- Core ratios ----------------
 def compute_ratios_for_ticker(ticker: str) -> dict:
     t = yf.Ticker(ticker.strip())
 
@@ -93,30 +100,26 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
             "notes": "대차대조표를 찾지 못했습니다. 거래소 접미사(.KS, .T, .HK 등) 확인."
         }
 
-    # BS
-    current_assets = _latest_value_from_df(q_bs, ["total current assets", "current assets"])
+    current_assets      = _latest_value_from_df(q_bs, ["total current assets", "current assets"])
     current_liabilities = _latest_value_from_df(q_bs, ["total current liabilities", "current liabilities"])
-    inventory = _latest_value_from_df(q_bs, ["inventory"])
-    cash = _latest_value_from_df(q_bs, [
+    inventory           = _latest_value_from_df(q_bs, ["inventory"])
+    cash                = _latest_value_from_df(q_bs, [
         "cash and cash equivalents",
         "cash and cash equivalents including short-term investments",
         "cash and short term investments",
         "cash and short-term investments",
         "cash",
     ])
-    short_term_invest = _latest_value_from_df(q_bs, ["short term investments", "short-term investments"])
-    cash_like = _sum_if_present(cash, short_term_invest)
+    short_term_invest   = _latest_value_from_df(q_bs, ["short term investments", "short-term investments"])
+    cash_like           = _sum_if_present(cash, short_term_invest)
 
-    total_assets = _latest_value_from_df(q_bs, ["total assets"])
-    total_liabilities = _latest_value_from_df(q_bs, ["total liabilities"])
-    equity = _latest_value_from_df(q_bs, ["total stockholder equity", "total shareholders equity", "total equity"])
-    short_lt_debt = _latest_value_from_df(q_bs, [
-        "short long term debt", "current portion of long term debt", "short-term debt"
-    ])
-    long_term_debt = _latest_value_from_df(q_bs, ["long term debt"])
-    total_debt = _latest_value_from_df(q_bs, ["total debt"]) or _sum_if_present(short_lt_debt, long_term_debt)
+    total_assets        = _latest_value_from_df(q_bs, ["total assets"])
+    total_liabilities   = _latest_value_from_df(q_bs, ["total liabilities"])
+    equity              = _latest_value_from_df(q_bs, ["total stockholder equity", "total shareholders equity", "total equity"])
+    short_lt_debt       = _latest_value_from_df(q_bs, ["short long term debt", "current portion of long term debt", "short-term debt"])
+    long_term_debt      = _latest_value_from_df(q_bs, ["long term debt"])
+    total_debt          = _latest_value_from_df(q_bs, ["total debt"]) or _sum_if_present(short_lt_debt, long_term_debt)
 
-    # IS/CF → EBIT & Interest
     def _has_df(df): return (df is not None) and (hasattr(df, "empty") and not df.empty)
 
     ebit = None
@@ -135,9 +138,23 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
     if interest_expense is None and _has_df(a_cf):
         interest_expense = _latest_value_from_df(a_cf, ["interest paid"])
 
-    # ratios
+    current_ratio = _safe_div(current_assets, current_liabilities)
+    quick_ratio   = _safe_div((current_assets - inventory) if (current_assets is not None and inventory is not None) else None, current_liabilities)
+    cash_ratio    = _safe_div(cash_like, current_liabilities)
+    debt_to_equity= _safe_div(total_debt, equity)
+    debt_ratio    = _safe_div(total_liabilities, total_assets)
+    interest_cov  = None
+    if ebit is not None and interest_expense is not None:
+        try:
+            denom = abs(float(interest_expense))
+            if denom:
+                interest_cov = float(ebit) / denom
+        except Exception:
+            interest_cov = None
+
     def _band(val: Optional[float], good: float, fair: float, higher_is_better: bool = True) -> str:
-        if val is None: return "N/A"
+        if val is None:
+            return "N/A"
         if higher_is_better:
             if val >= good: return "Strong"
             if val >= fair: return "Fair"
@@ -146,22 +163,6 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
             if val <= good: return "Strong"
             if val <= fair: return "Fair"
             return "Weak"
-
-    current_ratio = _safe_div(current_assets, current_liabilities)
-    quick_ratio   = _safe_div(
-        (current_assets - inventory) if (current_assets is not None and inventory is not None) else None,
-        current_liabilities
-    )
-    cash_ratio    = _safe_div(cash_like, current_liabilities)
-    debt_to_equity= _safe_div(total_debt, equity)
-    debt_ratio    = _safe_div(total_liabilities, total_assets)
-    interest_cov  = None
-    try:
-        if ebit is not None and interest_expense not in (None, 0):
-            denom = abs(float(interest_expense))
-            if denom: interest_cov = float(ebit) / denom
-    except Exception:
-        pass
 
     assessment = {
         "Liquidity": {
@@ -185,8 +186,9 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
         "notes": "Latest quarterly (fallback to annual) statements via yfinance; ratios are approximations."
     }
 
-# ───────── 티커 파싱 ─────────
+# ---------------- ticker picker ----------------
 def pick_valid_ticker(user_query: str) -> str:
+    import re
     tokens = re.findall(r"[A-Za-z0-9\.\-]{1,15}", (user_query or "").upper())
     candidates = [t for t in tokens if any(c.isalpha() for c in t)]
     if not candidates:
@@ -201,41 +203,18 @@ def pick_valid_ticker(user_query: str) -> str:
             continue
     return candidates[0].strip()
 
-# ───────── 규칙 기반 내러티브 폴백 (LLM 없음) ─────────
+# ---------------- Narrative(LLM 없이도 생성) ----------------
 def _fallback_narrative(payload: Dict, language: str, business_summary: Optional[str]) -> str:
-    ask_lang = "Korean" if language.lower().startswith("ko") else "English"
-    r = payload.get("ratios", {})
-    liq = r.get("Liquidity", {}) or {}
-    sol = r.get("Solvency", {}) or {}
+    ask_ko = language.lower().startswith("ko")
+    r = payload.get("ratios", {}) or {}
+    liq, sol = r.get("Liquidity", {}), r.get("Solvency", {})
 
     def fmt(node, name):
         v = (node or {}).get("value")
         b = (node or {}).get("band", "N/A")
         return f"{name}: {'N/A' if v is None else f'{v:.2f}'} ({b})"
 
-    def overall_verdict():
-        score_map = {"Strong": 2, "Fair": 1, "Weak": 0, "N/A": 0}
-        bands = [
-            (liq.get("current_ratio") or {}).get("band", "N/A"),
-            (liq.get("quick_ratio") or {}).get("band", "N/A"),
-            (liq.get("cash_ratio") or {}).get("band", "N/A"),
-            (sol.get("debt_to_equity") or {}).get("band", "N/A"),
-            (sol.get("debt_ratio") or {}).get("band", "N/A"),
-            (sol.get("interest_coverage") or {}).get("band", "N/A"),
-        ]
-        total = sum(score_map.get(b, 0) for b in bands)
-        if ask_lang == "Korean":
-            if total >= 9: return "재무건전성은 **매우 양호**한 편입니다."
-            if total >= 6: return "재무건전성은 **양호**한 편입니다."
-            if total >= 3: return "재무건전성은 **보통** 수준입니다."
-            return "재무건전성은 **취약**한 편입니다."
-        else:
-            if total >= 9: return "Overall financial health is **excellent**."
-            if total >= 6: return "Overall financial health is **good**."
-            if total >= 3: return "Overall financial health is **average**."
-            return "Overall financial health is **weak**."
-
-    if ask_lang == "Korean":
+    if ask_ko:
         return (
             f"회사 개요: {business_summary or '회사 소개 정보를 가져오지 못했습니다.'}\n"
             "• 유동성: " + ", ".join([
@@ -247,8 +226,7 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
                 fmt(sol.get("debt_to_equity"), "부채비율(D/E)"),
                 fmt(sol.get("debt_ratio"), "부채비율(TA)"),
                 fmt(sol.get("interest_coverage"), "이자보상배율"),
-            ]) + "\n"
-            "한줄평: " + overall_verdict()
+            ])
         )
     else:
         return (
@@ -262,39 +240,26 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
                 fmt(sol.get("debt_to_equity"), "Debt-to-Equity"),
                 fmt(sol.get("debt_ratio"), "Debt Ratio"),
                 fmt(sol.get("interest_coverage"), "Interest Coverage"),
-            ]) + "\n"
-            "Takeaway: " + overall_verdict()
+            ])
         )
 
-# ───────── public entry (재무 + 폴백 내러티브만) ─────────
-def run_query(user_query: str, language: str = "ko") -> dict:
+def _make_narrative(payload_core: Dict, language: str, business_summary: Optional[str], want: bool) -> str:
+    if not want:
+        return ""
+    # IB 톤 요약을 재활용해서 2~3문장 summary 로 좁혀도 되지만,
+    # 프론트 Narrative는 섹션형이라 fallback 텍스트가 더 안정적.
+    try:
+        return _fallback_narrative(payload_core, language, business_summary)
+    except Exception:
+        return ""
+
+# ---------------- Public entry ----------------
+def run_query(user_query: str, language: str = "ko", want_narrative: bool = True) -> dict:
     ticker = pick_valid_ticker(user_query)
     payload = compute_ratios_for_ticker(ticker)
-
-    # 회사 개요
     business_summary = _get_company_summary(payload["ticker"])
 
-    ratios = payload.get("ratios") or {}
-    liq = ratios.get("Liquidity") or {}
-    sol = ratios.get("Solvency") or {}
-    empty_liq = all((liq.get(k, {}).get("value") is None) for k in ["current_ratio","quick_ratio","cash_ratio"])
-    empty_sol = all((sol.get(k, {}).get("value") is None) for k in ["debt_to_equity","debt_ratio","interest_coverage"])
-
-    if not ratios or (empty_liq and empty_sol):
-        payload["notes"] = f"'{ticker}' 재무제표를 찾지 못했습니다. 거래소 접미사(.KS, .T, .HK 등) 확인."
-        explanation = "재무제표가 비어 있어 평가를 생성하지 않았습니다."
-    else:
-        # ✅ 핵심 변경: llm_core가 LLM 또는 폴백으로 Narrative 생성
-        explanation = summarize_narrative(
-            {
-                "ratios": payload["ratios"],
-                "company": payload.get("company"),
-                "ticker": payload.get("ticker"),
-                "price": payload.get("price"),
-            },
-            language=language,
-            business_summary=business_summary
-        )
+    explanation = _make_narrative(payload, language, business_summary, want=want_narrative)
 
     return {
         "core": {
@@ -305,18 +270,7 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         },
         "notes": payload.get("notes"),
         "explanation": explanation,
-        "meta": {"source": "Yahoo Finance"}  # LLM 여부 표시는 /health로 충분
+        "meta": {"source": "Yahoo Finance"},
     }
 
-# ───────── LLM status (finance agent는 LLM 안씀) ─────────
-def get_llm_status() -> dict:
-    """Frontend /health 용. 재무엔진은 LLM을 쓰지 않으므로 'none' 리턴."""
-    return {"provider": "none", "ready": False, "reason": "finance_agent has no LLM"}
-
-# 
-__all__ = [
-    "run_query",
-    "pick_valid_ticker",
-    "compute_ratios_for_ticker",
-    "get_llm_status",
-]
+__all__ = ["run_query", "pick_valid_ticker", "compute_ratios_for_ticker"]
