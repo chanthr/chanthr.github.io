@@ -21,6 +21,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# GitHub Pages / 로컬 개발 도메인 허용
+_allowed = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,https://chanthr.github.io"
+)
+ALLOWED_ORIGINS = [o.strip() for o in _allowed.split(",") if o.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=False,   # 쿠키 안 쓰면 False 권장
+)
+
 # ---------- Schemas ----------
 class AnalyseReq(BaseModel):
     query: str
