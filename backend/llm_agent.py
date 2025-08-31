@@ -1,5 +1,5 @@
 # llm_agent.py
-import os, json, time, re, urllib.parse
+import os, json, time, re, urllib.parse, sqlite3
 from typing import Optional, List, Dict
 
 import numpy as np
@@ -19,7 +19,7 @@ from finance_agent import run_query as fa_run_query, pick_valid_ticker
 
 # ───────── price_now (옵션: 없으면 폴백) ─────────
 try:
-    from brokers import price_now  # 프로젝트에 있으면 사용
+    from brokers import price_now  # 있으면 사용
 except Exception:
     def price_now(symbol: str) -> Optional[float]:
         try:
@@ -73,12 +73,9 @@ def _predict_fallback(symbol: str) -> dict:
     pred_close = last * (1.0 + pred_ret)
     signal = "BUY" if pred_ret > 0.01 else ("SELL" if pred_ret < -0.01 else "HOLD")
     return {
-        "symbol": symbol,
-        "last_close": round(last, 4),
-        "pred_ret_1d": round(pred_ret, 6),
-        "pred_close_1d": round(pred_close, 4),
-        "signal": signal,
-        "ts": int(time.time()),
+        "symbol": symbol, "last_close": round(last, 4),
+        "pred_ret_1d": round(pred_ret, 6), "pred_close_1d": round(pred_close, 4),
+        "signal": signal, "ts": int(time.time()),
     }
 
 # ───────── Google News RSS 파서 ─────────
@@ -87,8 +84,7 @@ def _unwrap_gnews_link(link: Optional[str]) -> Optional[str]:
     try:
         if "news.google.com" not in link: return link
         from urllib.parse import urlparse, parse_qs
-        parsed = urlparse(link)
-        qs = parse_qs(parsed.query)
+        parsed = urlparse(link); qs = parse_qs(parsed.query)
         u = (qs.get("url") or qs.get("u") or [None])[0]
         return u or link
     except Exception:
@@ -98,11 +94,7 @@ def _fetch_google_news_rss(query: str, language: str, k: int = 12) -> List[Dict]
     is_ko = str(language).lower().startswith("ko")
     hl = "ko" if is_ko else "en-US"
     gl = "KR" if is_ko else "US"
-    url = (
-        "https://news.google.com/rss/search?q="
-        + urllib.parse.quote_plus(query)
-        + f"&hl={hl}&gl={gl}&ceid={gl}:{hl}"
-    )
+    url = "https://news.google.com/rss/search?q=" + urllib.parse.quote_plus(query) + f"&hl={hl}&gl={gl}&ceid={gl}:{hl}"
     try:
         import feedparser as _fp
     except Exception:
@@ -141,17 +133,14 @@ def _make_company_queries(company_name: str, symbol: str, language: str) -> List
     base = (company_name or "").strip()
     clean = _clean_company_name(base)
     if base: q.append(f"\"{base}\"")
-    if clean and clean.lower() != base.lower():
-        q.append(f"\"{clean}\"")
+    if clean and clean.lower() != base.lower(): q.append(f"\"{clean}\"")
     if language.lower().startswith("ko"):
         topics = "발표 OR 출시 OR 인수 OR 합병 OR 제휴 OR 투자 OR 규제 OR 소송 OR 공급망 OR 실적발표"
     else:
         topics = "announcement OR launch OR acquisition OR merger OR partnership OR investment OR regulatory OR lawsuit OR supply chain OR earnings call"
     if base:  q.append(f"\"{base}\" ({topics})")
-    if clean and clean.lower() != base.lower():
-        q.append(f"\"{clean}\" ({topics})")
+    if clean and clean.lower() != base.lower(): q.append(f"\"{clean}\" ({topics})")
     if symbol: q.append(symbol)
-    # de-dup
     seen, uniq = set(), []
     for s in q:
         key = s.lower()
@@ -352,14 +341,16 @@ def _analyze_news(items: List[Dict], language: str) -> Dict:
         "items": rows
     }
 
+# ───────── 뉴스 한줄 요약 (LLM/폴백) ─────────
 def _news_summary_llm(analysis: Dict, language: str) -> Optional[str]:
-    if _model is None: return None
+    if _model is None:
+        return None
     ask_lang = "Korean" if language.lower().startswith("ko") else "English"
     prompt = ChatPromptTemplate.from_messages([
         ("system",
          "You are an equity analyst writing a brief press-tone note. Write in {ask_lang}. "
-         "Summarize media sentiment and key themes in one concise sentence."),
-        ("human", "DATA(JSON): {blob}\nReturn only one sentence.")
+         "Summarize media sentiment and key themes in one concise sentence. No markdown."),
+        ("human", "DATA(JSON): {blob}\nReturn one sentence summary.")
     ])
     chain = prompt | _model | StrOutputParser()
     try:
@@ -367,6 +358,73 @@ def _news_summary_llm(analysis: Dict, language: str) -> Optional[str]:
         return re.sub(r"\s+", " ", str(txt)).strip()[:280]
     except Exception:
         return None
+
+def _news_summary_rule(analysis: Dict, language: str) -> str:
+    o = (analysis or {}).get("overall", {}) or {}
+    label = o.get("label") or "mixed"
+    score = o.get("score") or 0.0
+    kws = ", ".join((o.get("top_keywords") or [])[:5]) or ( "키워드 없음" if language[:2]=="ko" else "no clear keywords")
+    if language[:2]=="ko":
+        tone = "긍정적" if label=="bullish" else ("부정적" if label=="bearish" else "혼재")
+        return f"언론 톤은 {tone}(점수 {score:+.3f})이며, 핵심 키워드는 {kws} 입니다."
+    else:
+        tone = "bullish" if label=="bullish" else ("bearish" if label=="bearish" else "mixed")
+        return f"Media tone is {tone} (score {score:+.3f}); key themes: {kws}."
+
+# ───────── SQLite 저장소 ─────────
+_DB_PATH = os.getenv("NEWS_DB_PATH") or os.path.join(os.path.dirname(__file__), "data", "news_keywords.sqlite3")
+
+def _db_conn():
+    try:
+        os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
+    except Exception:
+        pass
+    return sqlite3.connect(_DB_PATH, timeout=5)
+
+def _init_db():
+    try:
+        with _db_conn() as con:
+            con.execute("""
+            CREATE TABLE IF NOT EXISTS news_keywords (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                symbol TEXT,
+                company TEXT,
+                keyword TEXT,
+                count INTEGER,
+                label TEXT,
+                score REAL
+            );
+            """)
+            con.execute("CREATE INDEX IF NOT EXISTS idx_kw_symbol_ts ON news_keywords(symbol, ts);")
+    except Exception:
+        pass
+
+_init_db()
+
+def _save_keywords(symbol: str, company: str, analysis: Dict):
+    """overall.top_keywords를 빈도와 함께 저장(안전 실패 무시)."""
+    try:
+        o = (analysis or {}).get("overall", {}) or {}
+        label = o.get("label"); score = float(o.get("score") or 0.0)
+        # items의 키워드로 실제 빈도 재집계
+        freq: Dict[str,int] = {}
+        for it in (analysis or {}).get("items", []):
+            for k in (it.get("keywords") or []):
+                if not k: continue
+                freq[k] = freq.get(k, 0) + 1
+        ts_now = int(time.time())
+        rows = [(ts_now, symbol, company, k, c, label, score) for k, c in freq.items()]
+        if not rows:
+            return
+        with _db_conn() as con:
+            con.executemany(
+                "INSERT INTO news_keywords (ts, symbol, company, keyword, count, label, score) VALUES (?,?,?,?,?,?,?)",
+                rows
+            )
+    except Exception:
+        # 저장 실패는 기능을 막지 않음
+        pass
 
 # ───────── IB 톤 요약 ─────────
 def _ib_style_summary_rule(ana: dict, pred: Optional[dict], language: str) -> str:
@@ -460,11 +518,19 @@ def run_manager(query: str, language: str = "ko", include_news: bool = True) -> 
     except Exception:
         news = []
 
-    # 뉴스 분석 + (옵션) LLM 한줄
+    # 뉴스 분석 + 요약
     news_analysis = _analyze_news(news, language)
-    na_note = _news_summary_llm(news_analysis, language)
-    if na_note:
-        news_analysis["note"] = na_note
+    news_summary = _news_summary_llm(news_analysis, language) or _news_summary_rule(news_analysis, language)
+    news_analysis["summary"] = news_summary          # analysis 안에 포함
+    news_analysis["note"] = news_summary             # 구버전 프론트 호환
+    # 상단에서도 쉽게 접근하도록 별도 필드 제공
+    out_news_summary = news_summary
+
+    # 키워드 DB 저장 (안전 실패 무시)
+    try:
+        _save_keywords(sym, (ana.get("core") or {}).get("company") or "", news_analysis)
+    except Exception:
+        pass
 
     # 재무 요약
     try:
@@ -478,8 +544,11 @@ def run_manager(query: str, language: str = "ko", include_news: bool = True) -> 
         "price": ana["core"]["price"],
         "analysis": ana,
         "prediction": pred,
-        "news":  news_analysis, # ✅ 추가: 미디어 톤/키워드/임팩트
-        "summary": text,
+        # 필요하면 원문 기사 배열도 함께 보내고 싶다면 아래 라인을 주석해제
+        # "news_raw": news,
+        "news_analysis": news_analysis,   # 미디어 톤/키워드/임팩트 + summary
+        "news_summary": out_news_summary, # 프론트가 바로 쓰기 쉬운 별도 필드
+        "summary": text,                  # 재무(Analyst) 요약
         "meta": {
             "llm_provider": _LLM_PROVIDER,
             "llm_ready": bool(_model),
