@@ -241,7 +241,7 @@ async function analyse(prefs){
   }
 }
 
-// ---------- Agent (/agent) ----------
+// ---------- Agent: split calls (/predict, /ibsummary, /media) ----------
 let _agentCtrl = null;
 
 async function renderAgentExtras(ticker, lang, prefs){
@@ -258,55 +258,61 @@ async function renderAgentExtras(ticker, lang, prefs){
   if (prefs.sum  && sumEl)  sumProg  = startProgressIn(sumEl);
   if (prefs.news && newsEl) newsProg = startProgressIn(newsEl);
 
-  // cancel previous request
+  // cancel previous batch
   if (_agentCtrl) _agentCtrl.abort();
   _agentCtrl = new AbortController();
 
-  try{
-    const ag = await fetchJSON(`${API_BASE}/agent?t=${Date.now()}`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        query: `${ticker} 유동성/건전성 + 1D 예측`,
-        language: lang,
-        include_news: !!prefs.news
-      }),
-      signal: _agentCtrl.signal
-    }, 25000);
-    console.log("[/agent] ok", ag);
+  const tasks = [];
 
-    // 🔮 Prediction
-    if (prefs.pred && predEl && predProg) {
-      predProg.finish(predCard(ag?.prediction || { symbol: ticker }));
-    }
+  if (prefs.pred && predProg) {
+    tasks.push(
+      fetchJSON(`${API_BASE}/predict?t=${Date.now()}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ticker }),
+        signal: _agentCtrl.signal
+      }, 20000).then(p => predProg.finish(predCard(p || { symbol: ticker })))
+       .catch(()=> predProg.fail('Prediction unavailable.'))
+    );
+  }
 
-    // 🧠 Analyst summary (no nested .summary)
-    if (prefs.sum && sumEl && sumProg)  {
-      const txt = (ag?.summary || '').trim()
-        || (lang === 'ko' ? '요약 없음' : 'No summary');
-      sumProg.finish(escapeHTML(txt));
-    }
+  if (prefs.sum && sumProg) {
+    tasks.push(
+      fetchJSON(`${API_BASE}/ibsummary?t=${Date.now()}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ticker, language: lang }),
+        signal: _agentCtrl.signal
+      }, 20000).then(r => {
+        const txt = (r?.summary || '').trim() || (lang==='ko'?'요약 없음':'No summary');
+        sumProg.finish(escapeHTML(txt));
+      }).catch(()=> sumProg.fail('Summary unavailable.'))
+    );
+  }
 
-    // 🗞 News / Analysis ONLY
-    if (prefs.news && newsEl && newsProg) {
-      let html = `<div class="muted">${lang==='ko'?'분석 없음':'No media analysis available.'}</div>`;
-      let na = (ag && ag.news_analysis && ag.news_analysis.overall) ? ag.news_analysis : null;
-      if (!na && ag && ag.news && !Array.isArray(ag.news) && ag.news.overall) na = ag.news; // backward compat
-      if (na) html = renderNewsAnalysis(na, lang);
-      newsProg.finish(html);
-    }
+  if (prefs.news && newsProg) {
+    tasks.push(
+      fetchJSON(`${API_BASE}/media?t=${Date.now()}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ticker, language: lang }),
+        signal: _agentCtrl.signal
+      }, 25000).then(r => {
+        const na = r?.news_analysis || r; // endpoint may return object directly
+        if (na?.overall) newsProg.finish(renderNewsAnalysis(na, lang));
+        else newsProg.finish(`<div class="muted">${lang==='ko'?'분석 없음':'No media analysis available.'}</div>`);
+      }).catch(()=> newsProg.fail('News unavailable.'))
+    );
+  }
 
-  }catch(e){
-    if (e?.name !== 'AbortError') console.error("[/agent] error", e);
-    if (predProg) predProg.fail('Prediction unavailable.');
-    if (sumProg)  sumProg.fail('Summary unavailable.');
-    if (newsProg) newsProg.fail('News unavailable.');
+  try {
+    await Promise.allSettled(tasks);
   } finally {
     _agentCtrl = null;
   }
 }
 
-// ---------- Patch Notes ----------
+// ---------- Patch Notes (minimal UI; CSS는 기존걸 사용) ----------
 function mountPatchNotes(){
   const notes = (window.PATCH_NOTES || []);
   if (!Array.isArray(notes) || !notes.length) return;
@@ -341,6 +347,55 @@ function mountPatchNotes(){
   fab.addEventListener('click', ()=> modal.classList.add('open'));
 }
 
+// ====== One-click site reset (cookies/localStorage/cache/SW) ======
+async function resetSiteData() {
+  if (!confirm('Clear this site’s local data (cookies, localStorage, caches, service workers) and reload?')) return;
+
+  const link = document.getElementById('reset-site');
+  try { if (link) { link.textContent = '🧹 Cleaning…'; link.style.pointerEvents = 'none'; } } catch {}
+
+  try {
+    try { localStorage.clear(); } catch {}
+    try { sessionStorage.clear(); } catch {}
+    try {
+      const paths = ['/', location.pathname.split('/').slice(0, -1).join('/') || '/'];
+      const domains = [location.hostname, location.hostname.replace(/^www\./, '')]
+        .filter((v,i,arr)=>v && arr.indexOf(v)===i);
+      document.cookie.split(';').forEach(c => {
+        const name = c.split('=')[0].trim();
+        paths.forEach(p => {
+          document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}`;
+          domains.forEach(d => {
+            document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}; Domain=${d}`;
+            document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}; Domain=.${d}`;
+          });
+        });
+      });
+    } catch {}
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch {}
+    try {
+      if (navigator.serviceWorker?.getRegistrations) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch {}
+    if (link) link.textContent = '✅ Done. Reloading…';
+  } finally {
+    setTimeout(()=>location.reload(), 400);
+  }
+}
+
+// ====== Boot: reset button hook ======
+document.addEventListener('DOMContentLoaded', () => {
+  const reset = document.getElementById('reset-site');
+  if (reset) reset.addEventListener('click', (e) => { e.preventDefault(); resetSiteData(); });
+});
+
 // ---------- Orchestration ----------
 async function analyseWithExtras(){
   const prefs = getPrefs();
@@ -353,67 +408,6 @@ async function analyseWithExtras(){
   if (!prefs.pred && !prefs.sum && !prefs.news) return;
   await renderAgentExtras(t, lang, prefs);
 }
-
-// ====== One-click site reset (cookies/localStorage/cache/SW) ======
-async function resetSiteData() {
-  if (!confirm('Clear this site’s local data (cookies, localStorage, caches, service workers) and reload?')) return;
-
-  const link = document.getElementById('reset-site');
-  try { if (link) { link.textContent = '🧹 Cleaning…'; link.style.pointerEvents = 'none'; } } catch {}
-
-  try {
-    // 1) Web Storage
-    try { localStorage.clear(); } catch {}
-    try { sessionStorage.clear(); } catch {}
-
-    // 2) Cookies (HttpOnly 제외)
-    try {
-      const paths = ['/', location.pathname.split('/').slice(0, -1).join('/') || '/'];
-      const domains = [location.hostname, location.hostname.replace(/^www\./, '')]
-        .filter((v,i,arr)=>v && arr.indexOf(v)===i);
-
-      document.cookie.split(';').forEach(c => {
-        const name = c.split('=')[0].trim();
-        paths.forEach(p => {
-          // 기본
-          document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}`;
-          // 도메인 조합
-          domains.forEach(d => {
-            document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}; Domain=${d}`;
-            document.cookie = `${name}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=${p}; Domain=.${d}`;
-          });
-        });
-      });
-    } catch {}
-
-    // 3) Cache Storage
-    try {
-      if ('caches' in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k)));
-      }
-    } catch {}
-
-    // 4) Service Workers
-    try {
-      if (navigator.serviceWorker?.getRegistrations) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map(r => r.unregister()));
-      }
-    } catch {}
-
-    // 5) 네트워크 캐시 무력화는 하드 리로드로 처리
-    if (link) link.textContent = '✅ Done. Reloading…';
-  } finally {
-    setTimeout(()=>location.reload(), 400);
-  }
-}
-
-// ====== Boot에 클릭 핸들러 추가 ======
-document.addEventListener('DOMContentLoaded', () => {
-  const reset = document.getElementById('reset-site');
-  if (reset) reset.addEventListener('click', (e) => { e.preventDefault(); resetSiteData(); });
-});
 
 // ---------- Boot ----------
 document.addEventListener('DOMContentLoaded', () => {
