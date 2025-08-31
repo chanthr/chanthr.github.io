@@ -135,7 +135,7 @@ def summarize_ib(analysis: Dict, pred: Optional[Dict], language: str) -> str:
         return txt[:600] if txt else _ib_summary_rule(analysis, pred, language)
     except Exception:
         return _ib_summary_rule(analysis, pred, language)
-
+        
 def summarize_media(na: Dict, language: str) -> str:
     if not _model or not _HAVE_LLM:
         return _media_summary_rule(na, language)
