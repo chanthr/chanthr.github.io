@@ -201,7 +201,11 @@ async function analyse(prefs){
     const data = await fetchJSON(`${API_BASE}/analyse?t=${Date.now()}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ query: `${t} 유동성/건전성 평가`, language: lang })
+      body: JSON.stringify({
+        query: `${t} 유동성/건전성 평가`,
+        language: lang,
+        include_narrative: !!prefs?.narr
+       })
     });
 
     $("#title").textContent = `${data.core?.company || '-'} (${data.core?.ticker || '-'})`;
