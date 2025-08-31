@@ -4,7 +4,11 @@ from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from finance_agent import run_query as fin_run_query, get_llm_status as fin_llm_status, compute_ratios_for_ticker
+from finance_agent import (
+    run_query as fin_run_query, 
+    get_llm_status as fin_llm_status, 
+    compute_ratios_for_ticker,
+)
 from llm_core import get_model_status as agent_llm_status, summarize_ib
 from predict_agent import predict
 from news_agent import get_news_analysis
