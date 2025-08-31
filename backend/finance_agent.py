@@ -1,89 +1,11 @@
 # finance_agent.py
-import os
-import re
-import json
+import os, re, json
 from typing import Dict, Optional, List
 
 import pandas as pd
 import yfinance as yf
 
-# --- dotenv (optional) ---
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
-
-# --- LangChain / Groq (optional) ---
-_HAVE_LC = False  # ← 기본 False로 두고, 임포트 성공하면 True로 전환
-try:
-    from langchain_groq import ChatGroq
-    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-    from langchain_core.output_parsers import StrOutputParser
-    _HAVE_LC = True
-except Exception:
-    ChatGroq = None
-    ChatPromptTemplate = None
-    MessagesPlaceholder = None
-    StrOutputParser = None
-
-# --- Streamlit secrets (optional) ---
-try:
-    import streamlit as st
-    _HAVE_ST = True
-except Exception:
-    _HAVE_ST = False
-
-
-def _get_groq_key() -> str:
-    key = os.getenv("GROQ_API_KEY", "").strip()
-    if not key and _HAVE_ST:
-        try:
-            key = str(st.secrets.get("GROQ_API_KEY", "")).strip()
-        except Exception:
-            pass
-    return key
-
-
-# ---------------------------
-# Safe LLM builder (Groq)
-# ---------------------------
-_GROQ_REASON = None  # ← 전역 사유 저장
-_LLM_PROVIDER = "none"   # added
-
-def _build_llm():
-    """LLM 객체를 안전하게 생성(모듈/키 없으면 None)."""
-    global _GROQ_REASON, _LLM_PROVIDER
-    if not _HAVE_LC:
-        _GROQ_REASON = "LangChain/Groq modules not available."
-        _LLM_PROVIDER = "none"
-        return None
-    try:
-        key = _get_groq_key()
-        model = os.getenv("GROQ_MODEL", "llama3-8b-8192")
-        if not key:
-            _GROQ_REASON = "GROQ_API_KEY not found (env nor st.secrets)."
-            _LLM_PROVIDER = "none"
-            return None
-        _LLM_PROVIDER = "groq"  # ✅ Groq 사용
-        return ChatGroq(model=model, temperature=0.2, api_key=key)
-    except Exception as e:
-        _GROQ_REASON = f"ChatGroq init failed: {e}"
-        _LLM_PROVIDER = "none"
-        return None
-
-llm = _build_llm()
-
-def get_llm_status() -> Dict[str, object]:
-    return {
-        "provider": _LLM_PROVIDER,    # "groq" or "none"
-        "ready": bool(llm),
-        "reason": _GROQ_REASON,       # 준비 안 됐을 때 사유
-    }
-
-# =========================
-# yfinance helpers
-# =========================
+# ───────── yfinance helpers ─────────
 def _safe_info(t: yf.Ticker) -> Dict:
     try:
         info = t.get_info() if hasattr(t, "get_info") else (getattr(t, "info", {}) or {})
@@ -133,13 +55,10 @@ def _safe_div(a: Optional[float], b: Optional[float]) -> Optional[float]:
     except Exception:
         return None
 
-# =========================
-# Core ratio computation
-# =========================
+# ───────── 핵심 계산 ─────────
 def compute_ratios_for_ticker(ticker: str) -> dict:
     t = yf.Ticker(ticker.strip())
 
-    # 재무제표(분기 우선 → 연간 폴백)
     q_bs = getattr(t, "quarterly_balance_sheet", None)
     if q_bs is None or getattr(q_bs, "empty", True):
         q_bs = getattr(t, "balance_sheet", None)
@@ -152,7 +71,6 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
     q_cf = getattr(t, "quarterly_cashflow", None)
     a_cf = getattr(t, "cashflow", None)
 
-    # 회사/가격 정보
     info = _safe_info(t)
     company_name = info.get("longName") or info.get("shortName") or ticker
     sector = info.get("sector")
@@ -164,7 +82,6 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
     except Exception:
         pass
 
-    # 대차대조표 없으면 조기 반환
     if q_bs is None or getattr(q_bs, "empty", True):
         return {
             "company": company_name,
@@ -217,29 +134,9 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
     if interest_expense is None and _has_df(a_cf):
         interest_expense = _latest_value_from_df(a_cf, ["interest paid"])
 
-    # 비율
-    current_ratio = _safe_div(current_assets, current_liabilities)
-    quick_ratio = _safe_div(
-        (current_assets - inventory) if (current_assets is not None and inventory is not None) else None,
-        current_liabilities
-    )
-    cash_ratio = _safe_div(cash_like, current_liabilities)
-    debt_to_equity = _safe_div(total_debt, equity)
-    debt_ratio = _safe_div(total_liabilities, total_assets)
-
-    interest_cov = None
-    if ebit is not None and interest_expense is not None:
-        try:
-            denom = abs(float(interest_expense))
-            if denom:
-                interest_cov = float(ebit) / denom
-        except Exception:
-            interest_cov = None
-
-    # 라벨링
+    # ratios
     def _band(val: Optional[float], good: float, fair: float, higher_is_better: bool = True) -> str:
-        if val is None:
-            return "N/A"
+        if val is None: return "N/A"
         if higher_is_better:
             if val >= good: return "Strong"
             if val >= fair: return "Fair"
@@ -248,6 +145,22 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
             if val <= good: return "Strong"
             if val <= fair: return "Fair"
             return "Weak"
+
+    current_ratio = _safe_div(current_assets, current_liabilities)
+    quick_ratio   = _safe_div(
+        (current_assets - inventory) if (current_assets is not None and inventory is not None) else None,
+        current_liabilities
+    )
+    cash_ratio    = _safe_div(cash_like, current_liabilities)
+    debt_to_equity= _safe_div(total_debt, equity)
+    debt_ratio    = _safe_div(total_liabilities, total_assets)
+    interest_cov  = None
+    try:
+        if ebit is not None and interest_expense not in (None, 0):
+            denom = abs(float(interest_expense))
+            if denom: interest_cov = float(ebit) / denom
+    except Exception:
+        pass
 
     assessment = {
         "Liquidity": {
@@ -271,9 +184,7 @@ def compute_ratios_for_ticker(ticker: str) -> dict:
         "notes": "Latest quarterly (fallback to annual) statements via yfinance; ratios are approximations."
     }
 
-# =========================
-# Ticker parsing
-# =========================
+# ───────── 티커 파싱 ─────────
 def pick_valid_ticker(user_query: str) -> str:
     tokens = re.findall(r"[A-Za-z0-9\.\-]{1,15}", (user_query or "").upper())
     candidates = [t for t in tokens if any(c.isalpha() for c in t)]
@@ -289,45 +200,12 @@ def pick_valid_ticker(user_query: str) -> str:
             continue
     return candidates[0].strip()
 
-# =========================
-# Narrative via LLM (optional) + Fallback
-# =========================
-if _HAVE_LC:
-    _output_parser = StrOutputParser()
-    _prompt = ChatPromptTemplate.from_messages([
-        ("system",
-         "You are a financial analysis assistant. "
-         "Write in {ask_lang}. "
-         "Be concise and clear. "
-         "When summarizing company description, limit to **30 words maximum (or 30 Korean words if Korean)**."
-         ),
-        ("human",
-         "Return **Markdown only** using **this exact template**:\n\n"
-         "### 회사 개요 / Company overview\n"
-         "{business_summary}\n\n"
-         "### 💧 유동성 / Liquidity\n"
-         "- Current Ratio: <value> (<band>)\n"
-         "- Quick Ratio: <value> (<band>)\n"
-         "- Cash Ratio: <value> (<band>)\n\n"
-         "### 🛡️ 건전성 / Solvency\n"
-         "- Debt-to-Equity: <value> (<band>)\n"
-         "- Debt Ratio: <value> (<band>)\n"
-         "- Interest Coverage: <value> (<band>)\n\n"
-         "### ✅ 종합 평가 / Overall financial health\n"
-         "Provide a **1–2 sentence** overall judgment combining liquidity and solvency.\n\n"
-         "### ℹ️ 핵심 요약 / Takeaway\n"
-         "One short plain-language takeaway.\n\n"
-         "Use the data below.\n"
-         "BUSINESS_SUMMARY:\n{business_summary}\n\n"
-         "RATIOS_JSON:\n{ratios_json}"
-         ),
-        MessagesPlaceholder("agent_scratchpad"),
-    ])
-
+# ───────── 규칙 기반 내러티브 폴백 (LLM 없음) ─────────
 def _fallback_narrative(payload: Dict, language: str, business_summary: Optional[str]) -> str:
     ask_lang = "Korean" if language.lower().startswith("ko") else "English"
     r = payload.get("ratios", {})
-    liq, sol = r.get("Liquidity", {}), r.get("Solvency", {})
+    liq = r.get("Liquidity", {}) or {}
+    sol = r.get("Solvency", {}) or {}
 
     def fmt(node, name):
         v = (node or {}).get("value")
@@ -387,25 +265,7 @@ def _fallback_narrative(payload: Dict, language: str, business_summary: Optional
             "Takeaway: " + overall_verdict()
         )
 
-def _make_narrative_with_langchain(payload: Dict, language: str, business_summary: Optional[str]) -> str:
-    if llm is None or not _HAVE_LC:
-        return _fallback_narrative(payload, language, business_summary)
-    ask_lang = "Korean" if language.lower().startswith("ko") else "English"
-    inputs = {
-        "ask_lang": ask_lang,
-        "business_summary": business_summary or "(not available)",
-        "ratios_json": json.dumps(payload, ensure_ascii=False),
-        "agent_scratchpad": [],
-    }
-    chain = _prompt | llm | _output_parser  # type: ignore[name-defined]
-    try:
-        return chain.invoke(inputs)
-    except Exception as e:
-        return f"[LLM error: {e}]\n" + _fallback_narrative(payload, language, business_summary)
-
-# =========================
-# Public entry
-# =========================
+# ───────── public entry (재무 + 폴백 내러티브만) ─────────
 def run_query(user_query: str, language: str = "ko") -> dict:
     ticker = pick_valid_ticker(user_query)
     payload = compute_ratios_for_ticker(ticker)
@@ -421,7 +281,7 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         payload["notes"] = f"'{ticker}' 재무제표를 찾지 못했습니다. 거래소 접미사(.KS, .T, .HK 등) 확인."
         explanation = "재무제표가 비어 있어 평가를 생성하지 않았습니다."
     else:
-        explanation = _make_narrative_with_langchain(payload, language, business_summary)
+        explanation = _fallback_narrative(payload, language, business_summary)
 
     return {
         "core": {
@@ -432,19 +292,11 @@ def run_query(user_query: str, language: str = "ko") -> dict:
         },
         "notes": payload.get("notes"),
         "explanation": explanation,
-        "meta": {"source": "Yahoo Finance" if (llm is not None) else "fallback"}
+        "meta": {"source": "Yahoo Finance"}
     }
-
-if __name__ == "__main__":
-    q = input("예: 'AAPL 유동성/건전성 평가' > ").strip()
-    out = run_query(q, language="ko")
-    print("\n--- Explanation ---\n")
-    print(out["explanation"])
 
 __all__ = [
     "run_query",
     "pick_valid_ticker",
     "compute_ratios_for_ticker",
-    "llm",
-    "get_llm_status",   # ✅ 추가
 ]
